@@ -41,11 +41,13 @@ work-notes/
   .ignore                       keeps book/ out of ripgrep results
   src/
     SUMMARY.md                  generated between the aa-denote-mdbook-tool markers
+    days/                       one generated page per day (rewritten by summary)
     README.md                   book introduction
     notes/                      manual notes
     notes/zoom-summaries/       Zoom AI summaries
     notes/zoom-transcripts/     Zoom AI transcripts
-    png/                        images
+    png/ jpg/ svg/              images (created on first use, png/ by init)
+    pdf/ sql/ json/             other attachments (created on first use)
   book/                         rendered output (mdbook build)
 ```
 
@@ -62,6 +64,8 @@ kind = "manual"
 ```
 
 Imported notes also carry `parent` (the meeting's identifier) and `imported` (when the file was actually imported).
+
+Attachments use the same naming with their own extension, for example `src/pdf/20261010T081500--vendor-contract__acme.pdf`. The supported types are `png`, `jpg`, `svg`, `pdf`, `sql`, and `json`. Images (`png`, `jpg`, `svg`) are referenced as `![Title](path)` so they render inline; the others as `[Title](path)` so they open or download from the book.
 
 ## Timestamps
 
@@ -81,10 +85,10 @@ So transcripts imported at noon, or the next day, still sort and render right af
 | `init [DIR] [--title T]` | Create a notebook |
 | `new [--title] [--keywords a,b] [--kind] [--parent ID] [--date] [--edit]` | Create a note; prints its path |
 | `import FILE\|- --kind summary\|transcript [--parent ID] [--date]` | Import Zoom output (`.txt`/`.vtt` kept verbatim) |
-| `image FILE.png [--title] [--for ID]` | Copy a png to `src/png/`; prints `![..](..)` |
+| `attach FILE [--title] [--for ID]` (alias `image`) | Copy a png, jpg, svg, pdf, sql, or json file to `src/<ext>/`; prints `![..](..)` for images, `[..](..)` otherwise |
 | `link ID [--from ID] [--append]` | Print (or append) a relative link |
-| `links check` / `links fix` | Report or repair broken links; `fix` also converts `denote:ID` links |
-| `links backlinks ID` | List notes linking to a note |
+| `links check` / `links fix` | Report or repair broken links; `fix` also converts `denote:ID` links and turns bare `http(s)://` URLs into links (as `import` does) |
+| `links backlinks ID` | List notes linking to a note or attachment |
 | `rename ID [--title] [--keywords] [--signature]` | Rename, keep the identifier, fix inbound links |
 | `summary` / `build` / `serve [--open]` | Regenerate `SUMMARY.md`; build or serve the book |
 | `search PATTERN [--keyword K] [--kind K] [-- RG_ARGS]` | ripgrep over the notes |
@@ -108,13 +112,14 @@ aa-denote-mdbook-tool import ~/Downloads/GMT20261010-150012_Recording.transcript
     --kind transcript --parent 20261010T080000
 
 # Any time
-aa-denote-mdbook-tool image ~/Downloads/diagram.png --title "Arch Diagram" --for 20261010T080000
+aa-denote-mdbook-tool attach ~/Downloads/diagram.png --title "Arch Diagram" --for 20261010T080000
+aa-denote-mdbook-tool attach ~/Downloads/contract.pdf --title "Vendor Contract" --keywords acme
 aa-denote-mdbook-tool search budget --keyword acme --kind transcript -- -i
 aa-denote-mdbook-tool links check
 aa-denote-mdbook-tool build            # or: aa-denote-mdbook-tool serve --open
 ```
 
-The rendered book has one part per day, newest first. Each meeting is a chapter with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
+The rendered book lists each day as a linked entry, newest first, pointing to a generated page in `src/days/`. Each meeting is nested under its day, with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
 
 ## Library
 

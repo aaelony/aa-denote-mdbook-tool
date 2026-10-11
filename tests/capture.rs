@@ -3,6 +3,7 @@
 mod common;
 
 use std::fs;
+use std::path::Path;
 
 use common::*;
 
@@ -296,10 +297,10 @@ fn test_next_day_import_grouped_under_meeting_date() {
         .assert()
         .success();
     let s = test_helper_read_file(root.join("src/SUMMARY.md"));
-    assert!(!s.contains("# 2026-10-11"), "{s}");
+    assert!(!s.contains("[2026-10-11]"), "{s}");
     assert!(
         s.contains(
-            "# 2026-10-10\n\n- [1:1](notes/20261010T100000--1-1__oneonone.md)\n  - [1:1 Transcript]"
+            "- [2026-10-10](days/2026-10-10.md)\n  - [1:1](notes/20261010T100000--1-1__oneonone.md)\n    - [1:1 Transcript]"
         ),
         "{s}"
     );
@@ -403,15 +404,168 @@ fn test_image_for_summary_note() {
     assert_eq!(out, "![shot](../png/20261010T120001--shot.png)\n");
 }
 
+/// Every file path under `dir`, relative and sorted.
+fn test_helper_all_files_under(dir: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        for entry in fs::read_dir(&current).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = path.strip_prefix(dir).unwrap();
+                found.push(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Write `name` next to the notebook and attach it at 2026-10-10 12:00:00
+/// with the extra `args`; returns the printed reference.
+fn test_helper_attach_file(root: &Path, name: &str, args: &[&str]) -> String {
+    let source = root.parent().unwrap().join(name);
+    fs::write(&source, b"x").unwrap();
+    test_helper_run_ok_stdout(
+        test_helper_cli_at_time(root, "2026-10-10", "12:00:00")
+            .arg("attach")
+            .arg(&source)
+            .args(args),
+    )
+}
+
 #[test]
-fn test_non_png_rejected() {
+fn test_attach_svg_prints_image_syntax() {
     let (_t, root) = test_helper_init_notebook();
-    let jpg = root.parent().unwrap().join("shot.jpg");
-    fs::write(&jpg, b"x").unwrap();
+    let reference = test_helper_attach_file(&root, "flow.svg", &["--title", "Data Flow"]);
+    assert_eq!(
+        reference,
+        "![Data Flow](../svg/20261010T120000--data-flow.svg)\n"
+    );
+    assert!(
+        root.join("src/svg/20261010T120000--data-flow.svg")
+            .is_file()
+    );
+}
+
+#[test]
+fn test_attach_pdf_prints_link_syntax() {
+    let (_t, root) = test_helper_init_notebook();
+    let reference = test_helper_attach_file(
+        &root,
+        "contract.pdf",
+        &["--title", "Vendor Contract", "--keywords", "acme"],
+    );
+    assert_eq!(
+        reference,
+        "[Vendor Contract](../pdf/20261010T120000--vendor-contract__acme.pdf)\n"
+    );
+    assert!(
+        root.join("src/pdf/20261010T120000--vendor-contract__acme.pdf")
+            .is_file()
+    );
+}
+
+#[test]
+fn test_attach_sql_and_json_print_link_syntax() {
+    let (_t, root) = test_helper_init_notebook();
+    assert!(!root.join("src/json").exists());
+    let sql_reference = test_helper_attach_file(&root, "revenue.sql", &[]);
+    assert_eq!(
+        sql_reference,
+        "[revenue](../sql/20261010T120000--revenue.sql)\n"
+    );
+    let json_reference = test_helper_attach_file(&root, "payload.json", &[]);
+    assert_eq!(
+        json_reference,
+        "[payload](../json/20261010T120001--payload.json)\n"
+    );
+    assert_eq!(
+        test_helper_sorted_file_names(root.join("src/json")),
+        ["20261010T120001--payload.json"]
+    );
+}
+
+#[test]
+fn test_attach_uppercase_extension_stored_lowercase() {
+    let (_t, root) = test_helper_init_notebook();
+    let reference = test_helper_attach_file(&root, "Photo.JPG", &[]);
+    assert_eq!(reference, "![Photo](../jpg/20261010T120000--photo.jpg)\n");
+    assert_eq!(
+        test_helper_sorted_file_names(root.join("src/jpg")),
+        ["20261010T120000--photo.jpg"]
+    );
+}
+
+#[test]
+fn test_attach_unsupported_extension_rejected() {
+    let (_t, root) = test_helper_init_notebook();
+    let before = test_helper_all_files_under(&root.join("src"));
+    let docx = root.parent().unwrap().join("notes.docx");
+    fs::write(&docx, b"x").unwrap();
+    let stderr = test_helper_cli_at_time(&root, "2026-10-10", "12:00:00")
+        .arg("attach")
+        .arg(&docx)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let message = String::from_utf8_lossy(&stderr);
+    assert!(
+        message.contains("png, jpg, svg, pdf, sql, json"),
+        "{message}"
+    );
+    assert_eq!(test_helper_all_files_under(&root.join("src")), before);
+}
+
+#[test]
+fn test_attach_missing_file_rejected() {
+    let (_t, root) = test_helper_init_notebook();
+    let before = test_helper_all_files_under(&root.join("src"));
     test_helper_cli_at_time(&root, "2026-10-10", "12:00:00")
-        .arg("image")
-        .arg(&jpg)
+        .arg("attach")
+        .arg(root.parent().unwrap().join("missing.pdf"))
         .assert()
         .failure();
-    assert!(test_helper_sorted_file_names(root.join("src/png")).is_empty());
+    assert_eq!(test_helper_all_files_under(&root.join("src")), before);
+}
+
+#[test]
+fn test_image_alias_listed_in_help() {
+    let (_t, root) = test_helper_init_notebook();
+    let help = test_helper_run_ok_stdout(test_helper_isolated_cli(&root).arg("--help"));
+    assert!(help.contains("attach"), "{help}");
+    assert!(help.contains("[alias: image]"), "{help}");
+}
+
+#[test]
+fn test_import_markdown_links_bare_urls_but_vtt_stays_verbatim() {
+    let (_t, root) = test_helper_init_notebook();
+    let summary = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-10", "12:00:00")
+            .args(["import", "-", "--kind", "summary"])
+            .write_stdin("Recording: https://zoom.us/rec/abc_def\n"),
+    );
+    assert!(
+        test_helper_read_file(root.join(summary.trim()))
+            .contains("Recording: [https://zoom.us/rec/abc_def](https://zoom.us/rec/abc_def)\n")
+    );
+
+    let vtt = root.parent().unwrap().join("talk.vtt");
+    fs::write(&vtt, "WEBVTT\n\n00:01 see https://zoom.us/x\n").unwrap();
+    let transcript = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-10", "12:00:00")
+            .args(["import"])
+            .arg(&vtt)
+            .args(["--kind", "transcript"]),
+    );
+    let content = test_helper_read_file(root.join(transcript.trim()));
+    assert!(
+        content.contains("00:01 see https://zoom.us/x\n"),
+        "{content}"
+    );
+    assert!(!content.contains("[https://zoom.us/x]"), "{content}");
 }

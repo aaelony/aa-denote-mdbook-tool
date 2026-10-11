@@ -183,3 +183,11 @@ fn test_banner_on_stderr_only() {
         .clone();
     assert!(out.stderr.is_empty());
 }
+
+#[test]
+fn test_unsupported_extension_does_not_take_identifier() {
+    let (_t, root) = test_helper_init_notebook();
+    fs::write(root.join("src/notes/20261010T090000--draft.docx"), b"x").unwrap();
+    let created = test_helper_add_meeting_note(&root, "09:00:00", "Standup", "meeting");
+    assert_eq!(created, "src/notes/20261010T090000--standup__meeting.md");
+}

@@ -1,4 +1,4 @@
-//! Notebook root discovery, layout, and the scan of notes and images.
+//! Notebook root discovery, layout, and the scan of notes and attachments.
 
 use std::collections::HashSet;
 use std::fs;
@@ -18,7 +18,7 @@ pub struct Notebook {
     pub root: PathBuf,
 }
 
-/// A note or image found under `src/`.
+/// A note or attachment found under `src/`.
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub path: PathBuf,
@@ -93,14 +93,14 @@ impl Notebook {
         Ok(d)
     }
 
-    /// The `png` folder, created if missing.
-    pub fn png_dir(&self) -> Result<PathBuf> {
-        let d = self.src().join("png");
+    /// The `src/<ext>/` folder for an attachment type, created if missing.
+    pub fn attachment_dir(&self, ext: &str) -> Result<PathBuf> {
+        let d = self.src().join(ext);
         fs::create_dir_all(&d).with_context(|| format!("cannot create {}", d.display()))?;
         Ok(d)
     }
 
-    /// Every Denote-named note and image under `src/`.
+    /// Every Denote-named note and attachment under `src/`.
     pub fn scan(&self) -> Vec<Entry> {
         let mut out: Vec<Entry> = WalkDir::new(self.src())
             .into_iter()
@@ -135,13 +135,13 @@ impl Notebook {
         self.scan()
             .into_iter()
             .find(|e| e.name.id == id)
-            .with_context(|| format!("no note or image with identifier {id}"))
+            .with_context(|| format!("no note or attachment with identifier {id}"))
     }
 
     pub fn find_note(&self, id: &str) -> Result<Entry> {
         let e = self.find_id(id)?;
         if !e.is_note() {
-            bail!("{id} is an image, not a note");
+            bail!("{id} is an attachment, not a note");
         }
         Ok(e)
     }
@@ -243,7 +243,7 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
     for kind in [Kind::Manual, Kind::Summary, Kind::Transcript] {
         nb.kind_dir(kind)?;
     }
-    nb.png_dir()?;
+    nb.attachment_dir("png")?;
 
     let title_toml = crate::frontmatter::toml_str(&title);
     let files = [

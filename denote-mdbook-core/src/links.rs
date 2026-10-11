@@ -1,4 +1,4 @@
-//! Relative links between notes and images, resolved by Denote identifier.
+//! Relative links between notes and attachments, resolved by Denote identifier.
 
 use std::collections::HashMap;
 use std::fs;
@@ -6,9 +6,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
-use crate::capture::escape_link_text;
+use crate::capture::markdown_reference;
 use crate::frontmatter::{self, FrontMatter};
 use crate::naming::{self, DenoteName};
 use crate::notebook::{self, Entry, Notebook};
@@ -22,8 +22,8 @@ pub struct Link {
     pub line: usize,
 }
 
-/// Find inline links and images whose target is a `.md`/`.png` path or a
-/// `denote:` identifier. Code blocks and external URLs are skipped.
+/// Find inline links and images whose target is a `.md` or attachment path
+/// or a `denote:` identifier. Code blocks and external URLs are skipped.
 pub fn extract(text: &str) -> Vec<Link> {
     let mut out = Vec::new();
     for (event, range) in Parser::new(text).into_offset_iter() {
@@ -59,7 +59,11 @@ fn is_local_target(dest: &str) -> bool {
         return false;
     }
     let path = split_fragment(dest).0;
-    path.ends_with(".md") || path.ends_with(".png")
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
+    ext == "md" || naming::is_attachment_ext(ext)
 }
 
 fn split_fragment(dest: &str) -> (&str, &str) {
@@ -160,9 +164,12 @@ pub struct FixReport {
     pub fixed: Vec<(PathBuf, usize, String, String)>,
     /// (file, line, dest)
     pub unresolved: Vec<(PathBuf, usize, String)>,
+    /// (file, line, url) for bare URLs turned into links
+    pub linkified: Vec<(PathBuf, usize, String)>,
 }
 
-/// Rewrite every fixable link to its target's current relative path.
+/// Rewrite every fixable link to its target's current relative path and
+/// turn bare `http(s)://` URLs into links.
 pub fn fix(nb: &Notebook) -> Result<FixReport> {
     let index = Index::new(nb);
     let mut report = FixReport::default();
@@ -190,25 +197,118 @@ pub fn fix(nb: &Notebook) -> Result<FixReport> {
                 }
             }
         }
-        if edits.is_empty() {
-            continue;
-        }
+        let had_link_edits = !edits.is_empty();
         // Apply back to front so earlier ranges stay valid.
         edits.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
         for (range, new) in edits {
             text.replace_range(range, &new);
         }
-        notebook::safe_write(&file, &text)?;
+        let (linked, urls) = linkify_bare_urls(&text);
+        let had_bare_urls = !urls.is_empty();
+        report.linkified.extend(
+            urls.into_iter()
+                .map(|(line, url)| (file.clone(), line, url)),
+        );
+        if had_link_edits || had_bare_urls {
+            notebook::safe_write(&file, &linked)?;
+        }
     }
     Ok(report)
 }
 
-/// Notes that link to the note or image with identifier `id`.
+/// Turn every bare `http://` or `https://` URL in Markdown prose into
+/// `[url](url)`. Front matter, code, existing links and autolinks, and raw
+/// HTML are left alone. Returns the new text and each (line, url) linked.
+pub fn linkify_bare_urls(content: &str) -> (String, Vec<(usize, String)>) {
+    let body_start = frontmatter::split(content).map_or(0, |(_, body)| content.len() - body.len());
+    let body = &content[body_start..];
+    let mut found: Vec<(Range<usize>, String)> = Vec::new();
+    for span in prose_spans(body) {
+        for range in url_ranges(&body[span.clone()]) {
+            let start = body_start + span.start + range.start;
+            let end = body_start + span.start + range.end;
+            found.push((start..end, content[start..end].to_string()));
+        }
+    }
+    let mut out = content.to_string();
+    let mut linked = Vec::new();
+    for (range, url) in found.into_iter().rev() {
+        out.replace_range(range.clone(), &format!("[{url}]({url})"));
+        linked.push((1 + content[..range.start].matches('\n').count(), url));
+    }
+    linked.reverse();
+    (out, linked)
+}
+
+/// Byte ranges of plain text outside links, images, and code blocks, with
+/// adjacent text events merged (the parser splits text at characters such as
+/// `_`, which URLs often contain).
+fn prose_spans(body: &str) -> Vec<Range<usize>> {
+    let mut spans: Vec<Range<usize>> = Vec::new();
+    let mut nesting = 0usize;
+    for (event, range) in Parser::new(body).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Link { .. } | Tag::Image { .. } | Tag::CodeBlock(_)) => {
+                nesting += 1;
+            }
+            Event::End(TagEnd::Link | TagEnd::Image | TagEnd::CodeBlock) => {
+                nesting = nesting.saturating_sub(1);
+            }
+            Event::Text(_) if nesting == 0 => match spans.last_mut() {
+                Some(last) if last.end == range.start => last.end = range.end,
+                _ => spans.push(range),
+            },
+            _ => {}
+        }
+    }
+    spans
+}
+
+/// Ranges of `http://` / `https://` URLs in `text`, without trailing
+/// sentence punctuation or an unbalanced closing parenthesis.
+fn url_ranges(text: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some(found) = next_url_start(&text[pos..]) {
+        let start = pos + found;
+        let len = text[start..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
+            .unwrap_or(text.len() - start);
+        let url = trim_url_end(&text[start..start + len]);
+        let starts_word = !text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_alphanumeric());
+        let has_host = url.len() > url.find("://").unwrap_or(0) + 3;
+        if starts_word && has_host {
+            out.push(start..start + url.len());
+        }
+        pos = start + len.max(1);
+    }
+    out
+}
+
+fn next_url_start(text: &str) -> Option<usize> {
+    [text.find("http://"), text.find("https://")]
+        .into_iter()
+        .flatten()
+        .min()
+}
+
+fn trim_url_end(url: &str) -> &str {
+    let mut url = url.trim_end_matches(['.', ',', ';', ':', '!', '?', '\'']);
+    while url.ends_with(')') && url.matches(')').count() > url.matches('(').count() {
+        url = url[..url.len() - 1].trim_end_matches(['.', ',', ';', ':', '!', '?', '\'']);
+    }
+    url
+}
+
+/// Notes that link to the note or attachment with identifier `id`.
 pub fn backlinks(nb: &Notebook, id: &str) -> Result<Vec<PathBuf>> {
     let index = Index::new(nb);
     let target = index
         .get(id)
-        .with_context(|| format!("no note or image with identifier {id}"))?;
+        .with_context(|| format!("no note or attachment with identifier {id}"))?;
     let target_path = target.path.clone();
     let mut out = Vec::new();
     // Only notes count; SUMMARY.md and README.md are book plumbing.
@@ -251,10 +351,10 @@ pub fn make_link(nb: &Notebook, target_id: &str, from: Option<&str>) -> Result<S
     } else {
         text
     };
-    Ok(format!(
-        "[{}]({})",
-        escape_link_text(&text),
-        notebook::relative(&from_dir, &target.path)
+    Ok(markdown_reference(
+        &text,
+        &notebook::relative(&from_dir, &target.path),
+        &target.name.ext,
     ))
 }
 
@@ -362,6 +462,63 @@ mod tests {
                 "b.md#sec"
             ]
         );
+    }
+
+    #[test]
+    fn test_bare_urls_become_links() {
+        let (out, linked) = linkify_bare_urls(
+            "See https://example.com/a_b_c.\n(docs: http://x.org/p?q=1) and https://en.wikipedia.org/wiki/Rust_(language)!\n",
+        );
+        assert_eq!(
+            out,
+            "See [https://example.com/a_b_c](https://example.com/a_b_c).\n\
+             (docs: [http://x.org/p?q=1](http://x.org/p?q=1)) and \
+             [https://en.wikipedia.org/wiki/Rust_(language)](https://en.wikipedia.org/wiki/Rust_(language))!\n"
+        );
+        let lines: Vec<usize> = linked.iter().map(|(line, _)| *line).collect();
+        assert_eq!(lines, vec![1, 2, 2]);
+    }
+
+    #[test]
+    fn test_urls_in_links_code_and_front_matter_untouched() {
+        let text = "+++\ntitle = \"see https://a.com\"\n+++\n\n\
+                    [site](https://a.com) <https://b.com> `https://c.com`\n\n\
+                    ```\nhttps://d.com\n```\n\n\
+                    [https://e.com](https://e.com) xhttps://f.com https://\n";
+        let (out, linked) = linkify_bare_urls(text);
+        assert_eq!(out, text);
+        assert!(linked.is_empty());
+    }
+
+    #[test]
+    fn test_linkify_is_idempotent() {
+        let (once, _) = linkify_bare_urls("go to https://a.com/x now\n");
+        let (twice, linked) = linkify_bare_urls(&once);
+        assert_eq!(twice, once);
+        assert!(linked.is_empty());
+    }
+
+    #[test]
+    fn test_attachment_targets_are_local() {
+        for dest in [
+            "../pdf/x.pdf",
+            "../sql/q.sql",
+            "Report.PDF",
+            "../json/p.json#k",
+        ] {
+            assert!(is_local_target(dest), "{dest}");
+        }
+        for dest in [
+            "chapter.html",
+            "notes.docx",
+            "photo.jpeg",
+            "https://x.com/a.pdf",
+        ] {
+            assert!(!is_local_target(dest), "{dest}");
+        }
+        let text = "[c](../pdf/x.pdf) ![d](../svg/y.svg) [e](chapter.html)\n";
+        let dests: Vec<String> = extract(text).into_iter().map(|l| l.dest).collect();
+        assert_eq!(dests, vec!["../pdf/x.pdf", "../svg/y.svg"]);
     }
 
     /// `.md` is also Moldova's top-level domain, so an email address can end

@@ -7,6 +7,26 @@ use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc
 const ID_FORMAT: &str = "%Y%m%dT%H%M%S";
 const ID_LEN: usize = 15;
 
+/// Non-Markdown file types the notebook manages, each in `src/<ext>/`.
+pub const ATTACHMENT_EXTENSIONS: [&str; 6] = ["png", "jpg", "svg", "pdf", "sql", "json"];
+
+/// Attachment types mdBook can show inline with `![..](..)`.
+const RENDERABLE_EXTENSIONS: [&str; 3] = ["png", "jpg", "svg"];
+
+/// True for a supported attachment extension, ignoring case.
+pub fn is_attachment_ext(ext: &str) -> bool {
+    ATTACHMENT_EXTENSIONS
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(ext))
+}
+
+/// True for an attachment that renders as an image, ignoring case.
+pub fn is_renderable_ext(ext: &str) -> bool {
+    RENDERABLE_EXTENSIONS
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(ext))
+}
+
 /// Lowercase the title and turn every run of non-alphanumerics into one hyphen.
 pub fn slug_title(title: &str) -> String {
     let mut out = String::new();
@@ -101,10 +121,11 @@ impl DenoteName {
     }
 
     /// Parse a file name. Returns `None` for anything that is not a Denote
-    /// `.md` or `.png` name.
+    /// `.md` or lowercase attachment name.
     pub fn parse(file_name: &str) -> Option<Self> {
         let (stem, ext) = file_name.rsplit_once('.')?;
-        if ext != "md" && ext != "png" {
+        let is_lowercase_attachment = ATTACHMENT_EXTENSIONS.contains(&ext);
+        if ext != "md" && !is_lowercase_attachment {
             return None;
         }
         let id = stem.get(..ID_LEN)?;
@@ -356,6 +377,26 @@ mod tests {
     }
 
     #[test]
+    fn test_attachment_extensions() {
+        for ext in ["png", "jpg", "svg", "pdf", "sql", "json", "PDF", "Jpg"] {
+            assert!(is_attachment_ext(ext), "{ext}");
+        }
+        for ext in ["jpeg", "docx", "html", "md", ""] {
+            assert!(!is_attachment_ext(ext), "{ext}");
+        }
+    }
+
+    #[test]
+    fn test_renderable_extensions() {
+        for ext in ["png", "jpg", "svg", "SVG"] {
+            assert!(is_renderable_ext(ext), "{ext}");
+        }
+        for ext in ["pdf", "sql", "json", "jpeg"] {
+            assert!(!is_renderable_ext(ext), "{ext}");
+        }
+    }
+
+    #[test]
     fn test_round_trip() {
         for f in [
             "20261010T080000--weekly-sync__acme_meeting.md",
@@ -364,6 +405,11 @@ mod tests {
             "20261010T080000==1=a--weekly-sync.md",
             "20261010T080000.md",
             "20261010T080000--arch-diagram.png",
+            "20261010T081500--vendor-contract__acme.pdf",
+            "20261010T082000--revenue.sql",
+            "20261010T082100--payload.json",
+            "20261010T082200--data-flow.svg",
+            "20261010T082300--photo.jpg",
         ] {
             let n = DenoteName::parse(f).unwrap_or_else(|| panic!("parse {f}"));
             assert_eq!(n.file_name(), f);
@@ -376,6 +422,9 @@ mod tests {
             "README.md",
             "SUMMARY.md",
             "20261010T080000--x.txt",
+            "20261010T090000--draft.docx",
+            "20261010T090000--x.PDF",
+            "20261010T090000--x.jpeg",
             "2026101T080000.md",
             "20261310T080000.md",
             "20261010T080000junk.md",

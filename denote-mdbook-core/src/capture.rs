@@ -1,4 +1,4 @@
-//! Creating notes, importing Zoom output, and adding images.
+//! Creating notes, importing Zoom output, and adding attachments.
 
 use std::fs;
 use std::io::Read as _;
@@ -161,7 +161,8 @@ pub fn escape_link_text(s: &str) -> String {
         .replace(']', "\\]")
 }
 
-/// Read an import source as UTF-8 and wrap plain text and VTT in a fence.
+/// Read an import source as UTF-8, wrap plain text and VTT in a fence, and
+/// turn bare URLs in Markdown into links.
 pub fn import_body(source: &Source) -> Result<String> {
     let bytes = match source {
         Source::File(p) => fs::read(p).with_context(|| format!("cannot read {}", p.display()))?,
@@ -179,7 +180,11 @@ pub fn import_body(source: &Source) -> Result<String> {
             .is_some_and(|e| e.eq_ignore_ascii_case("txt") || e.eq_ignore_ascii_case("vtt")),
         Source::Stdin => false,
     };
-    Ok(if verbatim { fence(&text) } else { text })
+    Ok(if verbatim {
+        fence(&text)
+    } else {
+        crate::links::linkify_bare_urls(&text).0
+    })
 }
 
 /// Wrap text in a `text` code fence longer than any backtick run inside it.
@@ -199,8 +204,8 @@ fn fence(text: &str) -> String {
     format!("{ticks}text\n{body}\n{ticks}\n")
 }
 
-/// Copy a png into `src/png/` and return (path, Markdown reference).
-pub fn add_image(
+/// Copy a supported file into `src/<ext>/` and return (path, Markdown reference).
+pub fn add_attachment(
     nb: &Notebook,
     file: &Path,
     title: Option<&str>,
@@ -208,13 +213,7 @@ pub fn add_image(
     date: Option<&str>,
     for_note: Option<&str>,
 ) -> Result<(PathBuf, String)> {
-    let is_png = file
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("png"));
-    if !is_png {
-        bail!("{} is not a .png file", file.display());
-    }
+    let ext = attachment_extension(file)?;
     if !file.is_file() {
         bail!("{} does not exist", file.display());
     }
@@ -231,20 +230,58 @@ pub fn add_image(
     let now = naming::now()?;
     let start = naming::resolve_timestamp(date, None, None, &now)?;
     let id = nb.allocate_id(start);
-    let name = DenoteName::new(&id, "", &title, keywords, "png");
-    let dest = nb.png_dir()?.join(name.file_name());
+    let name = DenoteName::new(&id, "", &title, keywords, &ext);
+    let dest = nb.attachment_dir(&ext)?.join(name.file_name());
     fs::copy(file, &dest).with_context(|| format!("cannot copy to {}", dest.display()))?;
-    let reference = format!(
-        "![{}]({})",
-        escape_link_text(&title),
-        notebook::relative(&from_dir, &dest)
-    );
+    let reference = markdown_reference(&title, &notebook::relative(&from_dir, &dest), &ext);
     Ok((dest, reference))
+}
+
+/// The lowercase extension of `file` if it is a supported attachment type.
+fn attachment_extension(file: &Path) -> Result<String> {
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default();
+    if !naming::is_attachment_ext(ext) {
+        bail!(
+            "{} is not a supported attachment; supported extensions: {}",
+            file.display(),
+            naming::ATTACHMENT_EXTENSIONS.join(", ")
+        );
+    }
+    Ok(ext.to_ascii_lowercase())
+}
+
+/// `![text](path)` for renderable attachments, `[text](path)` otherwise.
+pub fn markdown_reference(text: &str, path: &str, ext: &str) -> String {
+    let bang = if naming::is_renderable_ext(ext) {
+        "!"
+    } else {
+        ""
+    };
+    format!("{bang}[{}]({path})", escape_link_text(text))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_markdown_reference_by_renderability() {
+        assert_eq!(
+            markdown_reference("Data Flow", "../svg/a.svg", "svg"),
+            "![Data Flow](../svg/a.svg)"
+        );
+        assert_eq!(
+            markdown_reference("Vendor [Contract]", "../pdf/b.pdf", "pdf"),
+            "[Vendor \\[Contract\\]](../pdf/b.pdf)"
+        );
+        assert_eq!(
+            markdown_reference("Q", "../sql/c.sql", "sql"),
+            "[Q](../sql/c.sql)"
+        );
+    }
 
     #[test]
     fn test_attachment_section_created() {

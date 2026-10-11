@@ -119,8 +119,12 @@ enum Cmd {
         #[command(flatten)]
         common: CommonNoteArgs,
     },
-    /// Copy a png into src/png and print a Markdown image reference
-    Image {
+    /// Copy a file into src/<ext>/ and print a Markdown reference
+    ///
+    /// Supported: png, jpg, svg (printed as images) and pdf, sql, json
+    /// (printed as links).
+    #[command(visible_alias = "image")]
+    Attach {
         file: PathBuf,
         #[arg(long)]
         title: Option<String>,
@@ -132,7 +136,7 @@ enum Cmd {
         #[arg(long = "for", value_name = "ID")]
         for_note: Option<String>,
     },
-    /// Print a Markdown link to a note or image
+    /// Print a Markdown link to a note or attachment
     Link {
         target: String,
         /// Make the path relative to this note
@@ -194,7 +198,7 @@ enum LinksCmd {
     Check,
     /// Repair links by identifier and convert denote: links
     Fix,
-    /// List notes that link to a note or image
+    /// List notes that link to a note or attachment
     Backlinks { id: String },
 }
 
@@ -220,13 +224,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Init { dir, title } => cmd_init(dir, title.as_deref()),
         Cmd::New { common, kind } => cmd_new(book, &common, kind),
         Cmd::Import { file, kind, common } => cmd_import(book, &file, kind, &common),
-        Cmd::Image {
+        Cmd::Attach {
             file,
             title,
             keywords,
             date,
             for_note,
-        } => cmd_image(
+        } => cmd_add_linked_file(
             book,
             &file,
             title.as_deref(),
@@ -303,7 +307,7 @@ fn cmd_import(
     finish_note(&nb, &path, common.edit)
 }
 
-fn cmd_image(
+fn cmd_add_linked_file(
     book: Option<&Path>,
     file: &Path,
     title: Option<&str>,
@@ -313,7 +317,7 @@ fn cmd_image(
 ) -> Result<ExitCode> {
     let nb = Notebook::find(book, BIN)?;
     let keywords = keywords.unwrap_or_default();
-    let (_, reference) = capture::add_image(&nb, file, title, &keywords, date, for_note)?;
+    let (_, reference) = capture::add_attachment(&nb, file, title, &keywords, date, for_note)?;
     println!("{reference}");
     Ok(ExitCode::SUCCESS)
 }
@@ -412,6 +416,9 @@ fn links_command(nb: &Notebook, command: LinksCmd) -> Result<ExitCode> {
             }
             for (file, line, dest) in &report.unresolved {
                 println!("{}:{line}: cannot resolve {dest}", nb.display(file));
+            }
+            for (file, line, url) in &report.linkified {
+                println!("{}:{line}: linked {url}", nb.display(file));
             }
         }
         LinksCmd::Backlinks { id } => {
