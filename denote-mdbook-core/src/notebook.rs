@@ -219,6 +219,21 @@ pub fn safe_write(path: &Path, content: &str) -> Result<()> {
     Ok(())
 }
 
+/// Stylesheet `init` registers in `book.toml`, relative to the notebook root.
+pub const FONT_CSS: &str = "theme/font.css";
+
+/// Renders the whole book, code included, in Courier New.
+const FONT_CSS_CONTENT: &str = "\
+:root {
+    --mono-font: \"Courier New\", Courier, monospace;
+}
+
+html,
+body {
+    font-family: \"Courier New\", Courier, monospace;
+}
+";
+
 /// Create a new notebook in `dir`. Refuses if `book.toml` already exists and
 /// never overwrites existing files. `program` is the command that `book.toml`
 /// registers as the mdBook preprocessor.
@@ -244,6 +259,9 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
         nb.kind_dir(kind)?;
     }
     nb.attachment_dir("png")?;
+    let theme_dir = nb.root.join("theme");
+    fs::create_dir_all(&theme_dir)
+        .with_context(|| format!("cannot create {}", theme_dir.display()))?;
 
     let title_toml = crate::frontmatter::toml_str(&title);
     let files = [
@@ -251,9 +269,11 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
             book_toml,
             format!(
                 "[book]\ntitle = {title_toml}\nsrc = \"src\"\n\n\
-                 [preprocessor.{program}]\ncommand = \"{program} preprocess\"\n"
+                 [preprocessor.{program}]\ncommand = \"{program} preprocess\"\n\n\
+                 [output.html]\nadditional-css = [\"{FONT_CSS}\"]\n"
             ),
         ),
+        (nb.root.join(FONT_CSS), FONT_CSS_CONTENT.to_string()),
         (nb.root.join(".ignore"), "book/\n".to_string()),
         (
             nb.src().join("SUMMARY.md"),

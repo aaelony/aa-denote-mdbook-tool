@@ -11,7 +11,13 @@ use tempfile::TempDir;
 #[test]
 fn test_init_creates_layout_and_builds() {
     let (_t, root) = test_helper_init_notebook();
-    for f in ["book.toml", ".ignore", "src/SUMMARY.md", "src/README.md"] {
+    for f in [
+        "book.toml",
+        ".ignore",
+        "theme/font.css",
+        "src/SUMMARY.md",
+        "src/README.md",
+    ] {
         assert!(root.join(f).is_file(), "missing {f}");
     }
     for d in [
@@ -27,6 +33,8 @@ fn test_init_creates_layout_and_builds() {
     assert!(toml.contains("title = \"work-notes\""));
     assert!(toml.contains("[preprocessor.aa-denote-mdbook-tool]"));
     assert!(toml.contains("command = \"aa-denote-mdbook-tool preprocess\""));
+    assert!(toml.contains("additional-css = [\"theme/font.css\"]"));
+    assert!(test_helper_read_file(root.join("theme/font.css")).contains("\"Courier New\""));
 
     // Plain `mdbook build` works on a fresh notebook, given the binary on PATH.
     let status = StdCommand::new("mdbook")
@@ -41,6 +49,7 @@ fn test_init_creates_layout_and_builds() {
         String::from_utf8_lossy(&status.stderr)
     );
     assert!(root.join("book/index.html").is_file());
+    assert!(root.join("book/theme/font.css").is_file());
 }
 
 #[test]

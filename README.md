@@ -39,6 +39,7 @@ cargo install mdbook ripgrep   # if not already installed
 work-notes/
   book.toml                     mdBook config + preprocessor
   .ignore                       keeps book/ out of ripgrep results
+  theme/font.css                renders the book in Courier New
   src/
     SUMMARY.md                  generated between the aa-denote-mdbook-tool markers
     days/                       one generated page per day (rewritten by summary)
