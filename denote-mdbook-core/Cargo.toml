@@ -1,0 +1,14 @@
+[package]
+name = "aa-denote-mdbook-tool-core"
+description = "Library behind aa-denote-mdbook-tool: Denote file names in an mdBook layout"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono = "0.4.45"
+pathdiff = "0.2.3"
+pulldown-cmark = { version = "0.13.4", default-features = false }
+serde_json = "1.0.152"
+toml = "1.1.8"
+walkdir = "2.5.0"
