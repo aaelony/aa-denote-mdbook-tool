@@ -24,6 +24,7 @@ fn test_init_creates_layout_and_builds() {
         "src/notes",
         "src/notes/zoom-summaries",
         "src/notes/zoom-transcripts",
+        "src/reference",
         "src/png",
     ] {
         assert!(root.join(d).is_dir(), "missing {d}");

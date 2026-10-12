@@ -367,6 +367,54 @@ fn test_mcp_new_note_matches_cli_and_updates_summary() {
 }
 
 #[test]
+fn test_mcp_reference_notes() {
+    let (_t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Acme Sync", "meeting,acme");
+    let mut session = test_helper_mcp_session(&root, "09:00:00");
+
+    let created = session.test_helper_call_ok(
+        "new_note",
+        json!({"title": "Glossary", "kind": "reference"}),
+    );
+    assert_eq!(
+        created["path"],
+        json!("src/reference/20261010T090000--glossary.md")
+    );
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(
+        summary.contains(
+            "- [Reference](reference.md)\n  - [Glossary](reference/20261010T090000--glossary.md)\n"
+        ),
+        "{summary}"
+    );
+
+    let references = session.test_helper_call_ok("list_notes", json!({"kind": "reference"}));
+    assert_eq!(
+        references["notes"],
+        json!([{
+            "id": "20261010T090000",
+            "title": "Glossary",
+            "kind": "reference",
+            "keywords": [],
+            "path": "src/reference/20261010T090000--glossary.md",
+        }])
+    );
+
+    let err = session.test_helper_call_err(
+        "new_note",
+        json!({"title": "Terms", "kind": "reference", "parent": "20261010T080000"}),
+    );
+    assert!(
+        err.contains("reference notes cannot have a parent"),
+        "{err}"
+    );
+    assert_eq!(
+        test_helper_sorted_file_names(root.join("src/reference")),
+        ["20261010T090000--glossary.md"]
+    );
+}
+
+#[test]
 fn test_mcp_import_note_from_content_links_parent() {
     let (_t, root) = test_helper_init_notebook();
     let parent = test_helper_add_meeting_note(&root, "08:00:00", "Acme Sync", "acme");

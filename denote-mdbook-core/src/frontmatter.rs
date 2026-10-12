@@ -7,6 +7,8 @@ pub enum Kind {
     Manual,
     Summary,
     Transcript,
+    /// Long-lived topic notes (glossaries, product notes) outside the day lists.
+    Reference,
 }
 
 impl Kind {
@@ -15,6 +17,7 @@ impl Kind {
             Kind::Manual => "manual",
             Kind::Summary => "summary",
             Kind::Transcript => "transcript",
+            Kind::Reference => "reference",
         }
     }
 
@@ -24,6 +27,7 @@ impl Kind {
             Kind::Manual => "notes",
             Kind::Summary => "notes/zoom-summaries",
             Kind::Transcript => "notes/zoom-transcripts",
+            Kind::Reference => "reference",
         }
     }
 
@@ -33,6 +37,7 @@ impl Kind {
             Kind::Summary => 0,
             Kind::Transcript => 1,
             Kind::Manual => 2,
+            Kind::Reference => 3,
         }
     }
 }

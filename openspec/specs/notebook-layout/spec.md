@@ -7,11 +7,11 @@ Defines the on-disk structure of a aa-denote-mdbook-tool notebook so that it is 
 ## Requirements
 
 ### Requirement: Notebook initialization
-The `init [DIR]` command SHALL create an mdBook-compatible notebook in `DIR` (default: current directory) containing `book.toml`, `src/SUMMARY.md`, `src/README.md`, `src/notes/`, `src/notes/zoom-summaries/`, `src/notes/zoom-transcripts/`, `src/png/`, and a `.ignore` file that excludes the rendered `book/` output.
+The `init [DIR]` command SHALL create an mdBook-compatible notebook in `DIR` (default: current directory) containing `book.toml`, `src/SUMMARY.md`, `src/README.md`, `src/notes/`, `src/notes/zoom-summaries/`, `src/notes/zoom-transcripts/`, `src/reference/`, `src/png/`, and a `.ignore` file that excludes the rendered `book/` output.
 
 #### Scenario: Initialize an empty directory
 - **WHEN** the user runs `aa-denote-mdbook-tool init ~/work-notes` and `~/work-notes` does not exist or is empty
-- **THEN** the directory is created with `book.toml`, `.ignore`, `src/SUMMARY.md`, `src/README.md`, `src/notes/`, `src/notes/zoom-summaries/`, `src/notes/zoom-transcripts/`, and `src/png/`
+- **THEN** the directory is created with `book.toml`, `.ignore`, `src/SUMMARY.md`, `src/README.md`, `src/notes/`, `src/notes/zoom-summaries/`, `src/notes/zoom-transcripts/`, `src/reference/`, and `src/png/`
 - **AND** `mdbook build` succeeds in that directory without further edits
 
 #### Scenario: Refuse to overwrite an existing notebook
@@ -29,7 +29,7 @@ The generated `book.toml` SHALL set the book title (from `--title`, default the 
 - **AND** lists `theme/font.css` in `additional-css` under `[output.html]`, and that file sets the font to Courier New
 
 ### Requirement: Folder per note kind
-Each note kind SHALL map to exactly one folder: `manual` to `src/notes/`, `summary` to `src/notes/zoom-summaries/`, and `transcript` to `src/notes/zoom-transcripts/`. Each supported attachment extension (`png`, `jpg`, `svg`, `pdf`, `sql`, `json`) SHALL map to a folder under `src/` named after the extension, for example `src/png/` and `src/pdf/`.
+Each note kind SHALL map to exactly one folder: `manual` to `src/notes/`, `summary` to `src/notes/zoom-summaries/`, `transcript` to `src/notes/zoom-transcripts/`, and `reference` to `src/reference/`. Each supported attachment extension (`png`, `jpg`, `svg`, `pdf`, `sql`, `json`) SHALL map to a folder under `src/` named after the extension, for example `src/png/` and `src/pdf/`.
 
 #### Scenario: Manual note location
 - **WHEN** a note of kind `manual` is created
@@ -38,6 +38,14 @@ Each note kind SHALL map to exactly one folder: `manual` to `src/notes/`, `summa
 #### Scenario: Zoom transcript location
 - **WHEN** a note of kind `transcript` is created or imported
 - **THEN** its file is written inside `src/notes/zoom-transcripts/`
+
+#### Scenario: Reference note location
+- **WHEN** a note of kind `reference` is created or imported
+- **THEN** its file is written directly inside `src/reference/`
+
+#### Scenario: Kind follows the folder
+- **WHEN** a Denote-named note sits in `src/reference/`
+- **THEN** the tool treats it as kind `reference`, for example in `search --kind reference`
 
 #### Scenario: Attachment location follows extension
 - **WHEN** the user attaches `contract.pdf` and `query.sql`

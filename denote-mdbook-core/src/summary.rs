@@ -16,6 +16,9 @@ use crate::notebook::{self, BEGIN_MARKER, END_MARKER, Notebook};
 /// Folder under `src/` holding one generated page per day.
 pub const DAYS_DIR: &str = "days";
 
+/// Generated page under `src/` listing every reference note.
+pub const REFERENCE_PAGE: &str = "reference.md";
+
 struct Item {
     id: String,
     title: String,
@@ -32,14 +35,22 @@ struct Day<'a> {
     entries: Vec<(usize, &'a Item)>,
 }
 
-/// Build the generated region (without markers): one linked list item per
-/// day, newest first, with that day's notes nested beneath it.
+/// Build the generated region (without markers): a Reference item when
+/// reference notes exist, then one linked list item per day, newest first,
+/// with that day's notes nested beneath it.
 pub fn generate(nb: &Notebook) -> String {
-    render_region(&group_by_day(&collect_items(nb)))
+    let references = reference_items(nb);
+    render_region(&references, &group_by_day(&collect_items(nb)))
 }
 
-fn render_region(days: &[Day]) -> String {
+fn render_region(references: &[Item], days: &[Day]) -> String {
     let mut out = String::new();
+    if !references.is_empty() {
+        out.push_str(&format!("- [Reference]({REFERENCE_PAGE})\n"));
+        for item in references {
+            out.push_str(&entry_line("  ", "", item));
+        }
+    }
     for day in days {
         out.push_str(&format!("- [{}]({DAYS_DIR}/{}.md)\n", day.date, day.date));
         for (depth, item) in &day.entries {
@@ -62,13 +73,43 @@ fn day_page(day: &Day) -> String {
     out
 }
 
+/// The page listing every reference note, with links relative to `src/`.
+fn reference_page(references: &[Item]) -> String {
+    let mut out = "# Reference\n\n".to_string();
+    for item in references {
+        out.push_str(&entry_line("", "", item));
+    }
+    out
+}
+
 /// Every Denote note under `src/notes/`, with its title, parent, and kind.
 fn collect_items(nb: &Notebook) -> Vec<Item> {
+    let notes_dir = nb.src().join("notes");
+    items_where(nb, |e| e.path.starts_with(&notes_dir))
+}
+
+/// Every reference note, ordered by title ignoring case, then identifier.
+fn reference_items(nb: &Notebook) -> Vec<Item> {
+    let mut items = items_where(nb, |e| nb.kind_of(e) == Kind::Reference);
+    sort_references(&mut items);
+    items
+}
+
+fn sort_references(items: &mut [Item]) {
+    items.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+}
+
+/// Every Denote note matching `keep`, with its title, parent, and kind.
+fn items_where(nb: &Notebook, keep: impl Fn(&notebook::Entry) -> bool) -> Vec<Item> {
     let src = nb.src();
-    let notes_dir = src.join("notes");
     nb.scan()
         .into_iter()
-        .filter(|e| e.is_note() && e.path.starts_with(&notes_dir))
+        .filter(|e| e.is_note() && keep(e))
         .map(|e| {
             let front = e.front();
             Item {
@@ -147,9 +188,12 @@ pub fn write(nb: &Notebook) -> Result<()> {
     let items = collect_items(nb);
     let days = group_by_day(&items);
     write_day_pages(nb, &days)?;
+    let references = reference_items(nb);
+    write_reference_page(nb, &references)?;
     let path = nb.src().join("SUMMARY.md");
     let existing = fs::read_to_string(&path).unwrap_or_else(|_| "# Summary\n".to_string());
-    notebook::safe_write(&path, &replace_region(&existing, &render_region(&days)))
+    let region = render_region(&references, &days);
+    notebook::safe_write(&path, &replace_region(&existing, &region))
 }
 
 /// Write `src/days/YYYY-MM-DD.md` for every day with notes and delete
@@ -177,6 +221,22 @@ fn write_day_pages(nb: &Notebook, days: &[Day]) -> Result<()> {
         if is_md && is_date && !current.contains(stem) {
             fs::remove_file(&path).with_context(|| format!("cannot remove {}", path.display()))?;
         }
+    }
+    Ok(())
+}
+
+/// Write `src/reference.md` when reference notes exist; remove it otherwise.
+fn write_reference_page(nb: &Notebook, references: &[Item]) -> Result<()> {
+    let path = nb.src().join(REFERENCE_PAGE);
+    if references.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).with_context(|| format!("cannot remove {}", path.display()))?;
+        }
+        return Ok(());
+    }
+    let page = reference_page(references);
+    if fs::read_to_string(&path).ok().as_deref() != Some(page.as_str()) {
+        notebook::safe_write(&path, &page)?;
     }
     Ok(())
 }
@@ -241,6 +301,80 @@ mod tests {
             out,
             format!("{}\n\n{BEGIN_MARKER}\nx\n{END_MARKER}\n", s.trim_end())
         );
+    }
+
+    fn test_helper_item(id: &str, title: &str, kind: Kind, link: &str) -> Item {
+        Item {
+            id: id.to_string(),
+            title: title.to_string(),
+            parent: None,
+            kind,
+            link: link.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_references_sorted_by_title_ignoring_case_then_id() {
+        let mut items = vec![
+            test_helper_item("20261012T090002", "Product: Widget", Kind::Reference, "p"),
+            test_helper_item("20261012T090001", "glossary", Kind::Reference, "g2"),
+            test_helper_item("20261012T090000", "glossary", Kind::Reference, "g1"),
+            test_helper_item("20261012T090003", "Acronyms", Kind::Reference, "a"),
+        ];
+        sort_references(&mut items);
+        let links: Vec<&str> = items.iter().map(|i| i.link.as_str()).collect();
+        assert_eq!(links, ["a", "g1", "g2", "p"]);
+    }
+
+    #[test]
+    fn test_reference_item_comes_before_days() {
+        let references = [test_helper_item(
+            "20261012T090000",
+            "Glossary",
+            Kind::Reference,
+            "reference/20261012T090000--glossary.md",
+        )];
+        let meeting = test_helper_item(
+            "20261010T080000",
+            "Weekly Sync",
+            Kind::Manual,
+            "notes/20261010T080000--weekly-sync.md",
+        );
+        let days = [Day {
+            date: "2026-10-10".to_string(),
+            entries: vec![(0, &meeting)],
+        }];
+        assert_eq!(
+            render_region(&references, &days),
+            "\n- [Reference](reference.md)\n  \
+             - [Glossary](reference/20261012T090000--glossary.md)\n\
+             - [2026-10-10](days/2026-10-10.md)\n  \
+             - [Weekly Sync](notes/20261010T080000--weekly-sync.md)\n\n"
+        );
+        assert_eq!(
+            reference_page(&references),
+            "# Reference\n\n- [Glossary](reference/20261012T090000--glossary.md)\n"
+        );
+    }
+
+    #[test]
+    fn test_region_without_references_unchanged() {
+        let meeting = test_helper_item(
+            "20261010T080000",
+            "Weekly Sync",
+            Kind::Manual,
+            "notes/20261010T080000--weekly-sync.md",
+        );
+        let days = [Day {
+            date: "2026-10-10".to_string(),
+            entries: vec![(0, &meeting)],
+        }];
+        assert_eq!(
+            render_region(&[], &days),
+            "\n- [2026-10-10](days/2026-10-10.md)\n  \
+             - [Weekly Sync](notes/20261010T080000--weekly-sync.md)\n\n"
+        );
+        assert_eq!(render_region(&[], &[]), "");
     }
 
     #[test]

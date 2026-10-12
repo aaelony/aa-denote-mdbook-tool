@@ -785,6 +785,28 @@ fn test_zoom_import_dry_run_writes_nothing() {
 }
 
 #[test]
+fn test_zoom_import_never_picks_reference_note_as_parent() {
+    let (_t, root) = test_helper_init_notebook();
+    let reference = root.join("src/reference/20261010T080000--acme-sync-glossary__acme.md");
+    fs::write(&reference, "# Acme Sync Glossary\n").unwrap();
+    let mock = test_helper_mock_zoom();
+    test_helper_mock_meeting_day(&mock);
+    let config_dir = TempDir::new().unwrap();
+    test_helper_write_signed_in_config(config_dir.path(), NEVER_EXPIRES);
+    let out = test_helper_stdout_of(test_helper_zoom_cli(&root, &mock, config_dir.path()).args([
+        "zoom",
+        "import",
+        "--date",
+        "2026-10-10",
+        "--dry-run",
+    ]));
+    assert!(
+        out.starts_with("2026-10-10 08:01 Acme Sync -> with no parent\n"),
+        "{out}"
+    );
+}
+
+#[test]
 fn test_zoom_import_transcript_only_reports_missing_summary() {
     let (_t, root) = test_helper_init_notebook();
     let mock = test_helper_mock_zoom();

@@ -95,6 +95,135 @@ fn test_import_markdown_summary() {
 }
 
 #[test]
+fn test_new_reference_note() {
+    let (_t, root) = test_helper_init_notebook();
+    let out = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00").args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+            "--keywords",
+            "acme",
+        ]),
+    );
+    assert_eq!(out, "src/reference/20261012T090000--glossary__acme.md\n");
+    let c = test_helper_read_file(root.join(out.trim()));
+    assert!(c.contains("kind = \"reference\""), "{c}");
+    assert!(c.ends_with("+++\n\n# Glossary\n"), "{c}");
+}
+
+#[test]
+fn test_import_reference_note() {
+    let (_t, root) = test_helper_init_notebook();
+    let src = root.parent().unwrap().join("glossary.md");
+    fs::write(&src, "**SLA**: service level agreement\n").unwrap();
+    let out = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00")
+            .arg("import")
+            .arg(&src)
+            .args(["--kind", "reference", "--title", "Glossary"]),
+    );
+    assert_eq!(out, "src/reference/20261012T090000--glossary.md\n");
+    let c = test_helper_read_file(root.join(out.trim()));
+    assert!(c.contains("kind = \"reference\""), "{c}");
+    assert!(
+        c.ends_with("# Glossary\n\n**SLA**: service level agreement\n"),
+        "{c}"
+    );
+    assert_eq!(
+        test_helper_read_file(&src),
+        "**SLA**: service level agreement\n"
+    );
+}
+
+#[test]
+fn test_reference_folder_recreated_when_missing() {
+    let (_t, root) = test_helper_init_notebook();
+    fs::remove_dir_all(root.join("src/reference")).unwrap();
+    let out = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00").args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+        ]),
+    );
+    assert_eq!(out, "src/reference/20261012T090000--glossary.md\n");
+    assert!(root.join(out.trim()).is_file());
+}
+
+#[test]
+fn test_reference_note_with_parent_rejected() {
+    let (_t, root) = test_helper_init_notebook();
+    let meeting = test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "acme");
+    let meeting_before = test_helper_read_file(root.join(&meeting));
+    let err = test_helper_cli_at_time(&root, "2026-10-12", "09:00:00")
+        .args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+            "--parent",
+            "20261010T080000",
+        ])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&err).contains("reference notes cannot have a parent"),
+        "{}",
+        String::from_utf8_lossy(&err)
+    );
+    assert!(test_helper_sorted_file_names(root.join("src/reference")).is_empty());
+    assert_eq!(test_helper_read_file(root.join(&meeting)), meeting_before);
+}
+
+#[test]
+fn test_reference_note_as_parent_rejected() {
+    let (_t, root) = test_helper_init_notebook();
+    let reference = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00").args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+        ]),
+    );
+    let reference = root.join(reference.trim());
+    let reference_before = test_helper_read_file(&reference);
+    let err = test_helper_cli_at_time(&root, "2026-10-12", "10:00:00")
+        .args([
+            "import",
+            "-",
+            "--kind",
+            "transcript",
+            "--parent",
+            "20261012T090000",
+        ])
+        .write_stdin("WEBVTT\n")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    assert!(
+        String::from_utf8_lossy(&err)
+            .contains("20261012T090000 is a reference note; a reference note cannot be a parent"),
+        "{}",
+        String::from_utf8_lossy(&err)
+    );
+    assert!(test_helper_sorted_file_names(root.join("src/notes/zoom-transcripts")).is_empty());
+    assert_eq!(test_helper_read_file(&reference), reference_before);
+}
+
+#[test]
 fn test_import_vtt_is_fenced() {
     let (_t, root) = test_helper_init_notebook();
     let src = root.parent().unwrap().join("meeting.vtt");

@@ -66,6 +66,7 @@ enum KindArg {
     Manual,
     Summary,
     Transcript,
+    Reference,
 }
 
 impl From<KindArg> for Kind {
@@ -74,6 +75,7 @@ impl From<KindArg> for Kind {
             KindArg::Manual => Kind::Manual,
             KindArg::Summary => Kind::Summary,
             KindArg::Transcript => Kind::Transcript,
+            KindArg::Reference => Kind::Reference,
         }
     }
 }
@@ -83,6 +85,7 @@ impl From<KindArg> for Kind {
 enum ImportKind {
     Summary,
     Transcript,
+    Reference,
 }
 
 impl From<ImportKind> for Kind {
@@ -90,6 +93,7 @@ impl From<ImportKind> for Kind {
         match k {
             ImportKind::Summary => Kind::Summary,
             ImportKind::Transcript => Kind::Transcript,
+            ImportKind::Reference => Kind::Reference,
         }
     }
 }
@@ -112,7 +116,7 @@ enum Cmd {
         #[arg(long, value_enum, default_value = "manual")]
         kind: KindArg,
     },
-    /// Import a Zoom AI summary or transcript ("-" reads standard input)
+    /// Import a Zoom AI summary, transcript, or reference note ("-" reads standard input)
     Import {
         file: PathBuf,
         #[arg(long, value_enum)]

@@ -38,6 +38,7 @@ enum KindParam {
     Manual,
     Summary,
     Transcript,
+    Reference,
 }
 
 impl From<KindParam> for Kind {
@@ -46,6 +47,7 @@ impl From<KindParam> for Kind {
             KindParam::Manual => Kind::Manual,
             KindParam::Summary => Kind::Summary,
             KindParam::Transcript => Kind::Transcript,
+            KindParam::Reference => Kind::Reference,
         }
     }
 }
@@ -56,6 +58,7 @@ impl From<KindParam> for Kind {
 enum ImportKindParam {
     Summary,
     Transcript,
+    Reference,
 }
 
 impl From<ImportKindParam> for Kind {
@@ -63,6 +66,7 @@ impl From<ImportKindParam> for Kind {
         match k {
             ImportKindParam::Summary => Kind::Summary,
             ImportKindParam::Transcript => Kind::Transcript,
+            ImportKindParam::Reference => Kind::Reference,
         }
     }
 }
@@ -323,7 +327,7 @@ impl NotebookServer {
     }
 
     #[tool(
-        description = "Import a Zoom AI summary or transcript from a file `path` or from `content`; pass exactly one"
+        description = "Import a Zoom AI summary, transcript, or reference note from a file `path` or from `content`; pass exactly one"
     )]
     async fn import_note(
         &self,

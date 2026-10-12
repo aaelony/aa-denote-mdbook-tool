@@ -171,6 +171,8 @@ impl Notebook {
             Kind::Summary
         } else if dir == self.src().join(Kind::Transcript.folder()) {
             Kind::Transcript
+        } else if dir == self.src().join(Kind::Reference.folder()) {
+            Kind::Reference
         } else {
             Kind::Manual
         }
@@ -255,7 +257,12 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Notes".to_string()),
     };
-    for kind in [Kind::Manual, Kind::Summary, Kind::Transcript] {
+    for kind in [
+        Kind::Manual,
+        Kind::Summary,
+        Kind::Transcript,
+        Kind::Reference,
+    ] {
         nb.kind_dir(kind)?;
     }
     nb.attachment_dir("png")?;
@@ -291,4 +298,33 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
         }
     }
     Ok(nb)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_helper_entry(nb: &Notebook, folder: &str, file_name: &str) -> Entry {
+        Entry {
+            path: nb.src().join(folder).join(file_name),
+            name: DenoteName::parse(file_name).unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_kind_of_follows_folder() {
+        let nb = Notebook {
+            root: PathBuf::from("/nb"),
+        };
+        let name = "20261012T090000--glossary__acme.md";
+        let cases = [
+            ("reference", Kind::Reference),
+            ("notes", Kind::Manual),
+            ("notes/zoom-summaries", Kind::Summary),
+            ("notes/zoom-transcripts", Kind::Transcript),
+        ];
+        for (folder, kind) in cases {
+            assert_eq!(nb.kind_of(&test_helper_entry(&nb, folder, name)), kind);
+        }
+    }
 }

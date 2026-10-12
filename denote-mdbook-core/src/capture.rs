@@ -54,11 +54,20 @@ pub fn create_note(
     source_file_name: Option<&str>,
     imported: bool,
 ) -> Result<PathBuf> {
+    if kind == Kind::Reference && opts.parent.is_some() {
+        bail!("reference notes cannot have a parent");
+    }
     let parent: Option<Entry> = opts
         .parent
         .as_deref()
         .map(|id| nb.find_note(id))
         .transpose()?;
+    if let Some(p) = parent.as_ref().filter(|p| nb.kind_of(p) == Kind::Reference) {
+        bail!(
+            "{} is a reference note; a reference note cannot be a parent",
+            p.name.id
+        );
+    }
 
     let (default_title, default_keywords) = match (&parent, kind) {
         (Some(p), Kind::Summary | Kind::Transcript) => {

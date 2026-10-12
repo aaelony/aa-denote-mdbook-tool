@@ -72,6 +72,42 @@ fn test_link_append() {
 }
 
 #[test]
+fn test_link_to_reference_note_and_backlinks() {
+    let (_t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting,acme");
+    test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00").args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+        ]),
+    );
+    test_helper_isolated_cli(&root)
+        .args([
+            "link",
+            "20261012T090000",
+            "--from",
+            "20261010T080000",
+            "--append",
+        ])
+        .assert()
+        .success();
+    assert!(
+        test_helper_read_file(root.join(WEEKLY))
+            .ends_with("\n\n[Glossary](../reference/20261012T090000--glossary.md)\n")
+    );
+    // Only the meeting note: generated pages such as src/reference.md are not notes.
+    let out = test_helper_run_ok_stdout(test_helper_isolated_cli(&root).args([
+        "links",
+        "backlinks",
+        "20261012T090000",
+    ]));
+    assert_eq!(out, format!("{WEEKLY}\tWeekly Sync\n"));
+}
+
+#[test]
 fn test_check_reports_broken_and_passes_when_valid() {
     let (_t, root) = test_helper_init_notebook();
     let summary = test_helper_meeting_and_summary(&root);

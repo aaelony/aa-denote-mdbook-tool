@@ -61,6 +61,35 @@ fn test_keyword_and_kind_filters() {
 }
 
 #[test]
+fn test_kind_reference_matches_only_reference_notes() {
+    let (_t, root) = test_helper_search_fixture_notebook();
+    let glossary = test_helper_run_ok_stdout(
+        test_helper_cli_at_time(&root, "2026-10-12", "09:00:00").args([
+            "new",
+            "--kind",
+            "reference",
+            "--title",
+            "Glossary",
+        ]),
+    );
+    let glossary = glossary.trim();
+    let mut c = test_helper_read_file(root.join(glossary));
+    c.push_str("\nBudget: money set aside for a project\n");
+    fs::write(root.join(glossary), c).unwrap();
+    let (code, text) = test_helper_exit_code_and_stdout(test_helper_isolated_cli(&root).args([
+        "search",
+        "Budget",
+        "--kind",
+        "reference",
+    ]));
+    assert_eq!(code, 0, "{text}");
+    assert_eq!(
+        text,
+        format!("{glossary}:Budget: money set aside for a project\n")
+    );
+}
+
+#[test]
 fn test_pass_through_arguments() {
     let (_t, root) = test_helper_search_fixture_notebook();
     // Case-sensitive by default: "budget" misses "Budget is approved".

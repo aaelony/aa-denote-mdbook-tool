@@ -224,7 +224,18 @@ pub fn wait_for_callback(listener: &TcpListener, expected_state: &str) -> Result
 fn handle_callback(mut stream: TcpStream, expected_state: &str) -> Result<Option<Result<String>>> {
     stream.set_nonblocking(false)?;
     let mut request_line = String::new();
-    BufReader::new(&stream).read_line(&mut request_line)?;
+    {
+        let mut reader = BufReader::new(&stream);
+        reader.read_line(&mut request_line)?;
+        // Read the headers too: closing a socket with unread data resets the
+        // connection, and the browser may then never see the response.
+        loop {
+            let mut header = String::new();
+            if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
+                break;
+            }
+        }
+    }
     let target = request_line.split_whitespace().nth(1).unwrap_or("");
     let Some(query) = target.strip_prefix("/callback?") else {
         respond(&mut stream, "404 Not Found", "Not found.")?;

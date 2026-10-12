@@ -120,6 +120,95 @@ fn test_summary_writes_day_pages_and_removes_stale_ones() {
         .success();
 }
 
+fn test_helper_add_reference_note(root: &std::path::Path, hms: &str, args: &[&str]) -> String {
+    test_helper_run_ok_stdout(
+        test_helper_cli_at_time(root, "2026-10-10", hms)
+            .args(["new", "--kind", "reference", "--date", hms])
+            .args(args),
+    )
+    .trim()
+    .to_string()
+}
+
+#[test]
+fn test_summary_writes_reference_section_and_page() {
+    let (_t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
+    let widget = test_helper_add_reference_note(&root, "09:00:00", &["--title", "Product: Widget"]);
+    // No title: listed by its identifier.
+    let untitled = test_helper_add_reference_note(&root, "09:01:00", &[]);
+    test_helper_isolated_cli(&root)
+        .arg("summary")
+        .assert()
+        .success();
+
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(
+        summary.contains(concat!(
+            "<!-- aa-denote-mdbook-tool:begin -->\n\n",
+            "- [Reference](reference.md)\n",
+            "  - [20261010T090100](reference/20261010T090100.md)\n",
+            "  - [Product: Widget](reference/20261010T090000--product-widget.md)\n",
+            "- [2026-10-10](days/2026-10-10.md)\n",
+            "  - [Weekly Sync](notes/20261010T080000--weekly-sync__meeting.md)\n\n",
+        )),
+        "{summary}"
+    );
+    assert_eq!(
+        test_helper_read_file(root.join("src/reference.md")),
+        concat!(
+            "# Reference\n\n",
+            "- [20261010T090100](reference/20261010T090100.md)\n",
+            "- [Product: Widget](reference/20261010T090000--product-widget.md)\n",
+        )
+    );
+    // Reference notes share the date but are not on the day page.
+    let day = test_helper_read_file(root.join("src/days/2026-10-10.md"));
+    assert!(!day.contains("reference/"), "{day}");
+    test_helper_isolated_cli(&root)
+        .args(["links", "check"])
+        .assert()
+        .success();
+
+    // Removing the last reference note removes the page and the item.
+    fs::remove_file(root.join(widget)).unwrap();
+    fs::remove_file(root.join(untitled)).unwrap();
+    test_helper_isolated_cli(&root)
+        .arg("summary")
+        .assert()
+        .success();
+    assert!(!root.join("src/reference.md").exists());
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(!summary.contains("[Reference]"), "{summary}");
+}
+
+#[test]
+fn test_new_reference_regenerates_summary_and_builds() {
+    let (_t, root) = test_helper_init_notebook();
+    let glossary = test_helper_add_reference_note(&root, "09:00:00", &["--title", "Glossary"]);
+    assert_eq!(glossary, "src/reference/20261010T090000--glossary.md");
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(
+        summary.contains(
+            "- [Reference](reference.md)\n  - [Glossary](reference/20261010T090000--glossary.md)\n"
+        ),
+        "{summary}"
+    );
+    test_helper_isolated_cli(&root)
+        .arg("build")
+        .assert()
+        .success();
+    let page = test_helper_read_file(root.join("book/reference.html"));
+    assert!(
+        page.contains("reference/20261010T090000--glossary.html"),
+        "{page}"
+    );
+    assert!(
+        root.join("book/reference/20261010T090000--glossary.html")
+            .is_file()
+    );
+}
+
 #[test]
 fn test_summary_skips_images_in_notes_folder() {
     let (_t, root) = test_helper_init_notebook();
