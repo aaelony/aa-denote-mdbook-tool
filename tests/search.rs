@@ -186,3 +186,27 @@ fn test_plain_ripgrep_scenarios() {
     assert!(!hits.is_empty());
     assert!(hits.lines().all(|l| !l.starts_with("book/")), "{hits}");
 }
+
+#[test]
+fn test_search_capture_returns_matching_lines() {
+    use aa_denote_mdbook_tool_core::frontmatter::Kind;
+    use aa_denote_mdbook_tool_core::notebook::Notebook;
+    use aa_denote_mdbook_tool_core::search::search_captured;
+
+    let (_t, root) = test_helper_search_fixture_notebook();
+    let nb = Notebook::at(&root).unwrap();
+    let found =
+        search_captured(&nb, "Budget", &["acme".to_string()], Some(Kind::Transcript)).unwrap();
+    assert_eq!(found.status, 0);
+    assert!(
+        found.stdout.contains("Budget is approved"),
+        "{}",
+        found.stdout
+    );
+    assert!(!found.stdout.contains("budget owner"), "{}", found.stdout);
+    assert!(!found.stdout.contains("budget later"), "{}", found.stdout);
+
+    let none = search_captured(&nb, "no-such-text-anywhere", &[], None).unwrap();
+    assert_eq!(none.status, 1);
+    assert!(none.stdout.is_empty());
+}

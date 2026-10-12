@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::{Command, ExitCode, Output};
 
 use anyhow::{Context, Result, bail};
 
@@ -16,6 +16,19 @@ pub fn run(mut cmd: Command, install_hint: &str) -> Result<u8> {
             .code()
             .and_then(|c| u8::try_from(c).ok())
             .unwrap_or(1)),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            bail!("`{program}` was not found on PATH. {install_hint}")
+        }
+        Err(e) => Err(e).with_context(|| format!("cannot run `{program}`")),
+    }
+}
+
+/// Run `program` with its output captured, or return a helpful error when it
+/// is not installed.
+pub fn output(mut cmd: Command, install_hint: &str) -> Result<Output> {
+    let program = cmd.get_program().to_string_lossy().into_owned();
+    match cmd.output() {
+        Ok(out) => Ok(out),
         Err(e) if e.kind() == ErrorKind::NotFound => {
             bail!("`{program}` was not found on PATH. {install_hint}")
         }

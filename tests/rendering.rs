@@ -244,3 +244,45 @@ fn test_build_without_mdbook() {
     // SUMMARY.md was regenerated before mdbook was needed.
     assert!(test_helper_read_file(root.join("src/SUMMARY.md")).contains("Weekly Sync"));
 }
+
+#[test]
+fn test_new_regenerates_summary() {
+    let (_t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(summary.contains("- [2026-10-10](days/2026-10-10.md)\n"));
+    assert!(
+        summary.contains("  - [Weekly Sync](notes/20261010T080000--weekly-sync__meeting.md)\n")
+    );
+    assert!(test_helper_read_file(root.join("src/days/2026-10-10.md")).contains("Weekly Sync"));
+}
+
+#[test]
+fn test_rename_regenerates_summary() {
+    let (_t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
+    test_helper_isolated_cli(&root)
+        .args(["rename", "20261010T080000", "--title", "Acme Kickoff"])
+        .assert()
+        .success();
+    let summary = test_helper_read_file(root.join("src/SUMMARY.md"));
+    assert!(summary.contains("[Acme Kickoff](notes/20261010T080000--acme-kickoff__meeting.md)"));
+    assert!(!summary.contains("weekly-sync"));
+}
+
+#[test]
+fn test_failed_attach_leaves_summary_unchanged() {
+    let (t, root) = test_helper_init_notebook();
+    test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
+    let summary_path = root.join("src/SUMMARY.md");
+    let hand_edited = "# Summary\n\nhand edited\n";
+    fs::write(&summary_path, hand_edited).unwrap();
+    let docx = t.path().join("plan.docx");
+    fs::write(&docx, "x").unwrap();
+    test_helper_isolated_cli(&root)
+        .arg("attach")
+        .arg(&docx)
+        .assert()
+        .failure();
+    assert_eq!(test_helper_read_file(&summary_path), hand_edited);
+}

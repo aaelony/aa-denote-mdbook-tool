@@ -36,6 +36,13 @@ export RUST_BACKTRACE := env('RUST_BACKTRACE', if ci_mode == '1' {'1'} else {'0'
 build:
     cargo build --workspace --all-features --all-targets
 
+build_release:
+	cargo build --workspace --all-features --all-targets --release
+
+deploy: build_release
+	cp -p target/release/aa-denote-mdbook-tool ~/.local/bin
+	echo "copied to ~/.local/bin/aa-ddenote-mdbook-tool"
+
 # Quick compile without building a binary
 check:
     cargo check --workspace --all-features --all-targets

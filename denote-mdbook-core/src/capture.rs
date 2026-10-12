@@ -24,6 +24,23 @@ pub struct NoteOptions {
 pub enum Source<'a> {
     File(&'a Path),
     Stdin,
+    /// Text supplied directly; `file_name` (if any) decides verbatim
+    /// handling the same way a file's extension does.
+    Content {
+        text: &'a str,
+        file_name: Option<&'a str>,
+    },
+}
+
+impl<'a> Source<'a> {
+    /// The source's file name, used to read a Zoom timestamp from it.
+    pub fn file_name(&self) -> Option<&'a str> {
+        match self {
+            Source::File(p) => p.file_name().and_then(|n| n.to_str()),
+            Source::Content { file_name, .. } => *file_name,
+            Source::Stdin => None,
+        }
+    }
 }
 
 /// Create a note and return its path.
@@ -171,15 +188,15 @@ pub fn import_body(source: &Source) -> Result<String> {
             std::io::stdin().read_to_end(&mut buf)?;
             buf
         }
+        Source::Content { text, .. } => text.as_bytes().to_vec(),
     };
     let text = String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("input is not valid UTF-8"))?;
-    let verbatim = match source {
-        Source::File(p) => p
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("txt") || e.eq_ignore_ascii_case("vtt")),
-        Source::Stdin => false,
-    };
+    let verbatim = source
+        .file_name()
+        .map(Path::new)
+        .and_then(Path::extension)
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("txt") || e.eq_ignore_ascii_case("vtt"));
     Ok(if verbatim {
         fence(&text)
     } else {

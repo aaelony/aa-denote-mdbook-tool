@@ -184,6 +184,8 @@ enum Cmd {
         #[arg(last = true)]
         rg_args: Vec<String>,
     },
+    /// Run an MCP server over stdio for this notebook
+    Mcp,
     /// mdBook preprocessor entry point
     #[command(hide = true)]
     Preprocess {
@@ -265,6 +267,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             kind,
             rg_args,
         } => cmd_search(book, &pattern, &keywords, kind, &rg_args),
+        Cmd::Mcp => cmd_mcp(book),
         Cmd::Preprocess { args } => preprocess::run(&args).map(|()| ExitCode::SUCCESS),
     }
 }
@@ -299,11 +302,14 @@ fn cmd_import(
         Source::File(file)
     };
     let body = capture::import_body(&source)?;
-    let file_name = match source {
-        Source::File(p) => p.file_name().and_then(|n| n.to_str()),
-        Source::Stdin => None,
-    };
-    let path = capture::create_note(&nb, kind.into(), &common.options(), &body, file_name, true)?;
+    let path = capture::create_note(
+        &nb,
+        kind.into(),
+        &common.options(),
+        &body,
+        source.file_name(),
+        true,
+    )?;
     finish_note(&nb, &path, common.edit)
 }
 
@@ -318,6 +324,7 @@ fn cmd_add_linked_file(
     let nb = Notebook::find(book, BIN)?;
     let keywords = keywords.unwrap_or_default();
     let (_, reference) = capture::add_attachment(&nb, file, title, &keywords, date, for_note)?;
+    after_write(&nb)?;
     println!("{reference}");
     Ok(ExitCode::SUCCESS)
 }
@@ -331,7 +338,10 @@ fn cmd_link(
     let nb = Notebook::find(book, BIN)?;
     let link = links::make_link(&nb, target, from)?;
     match (append, from) {
-        (true, Some(id)) => links::append_line(&nb.find_note(id)?.path, &link)?,
+        (true, Some(id)) => {
+            links::append_line(&nb.find_note(id)?.path, &link)?;
+            after_write(&nb)?;
+        }
         _ => println!("{link}"),
     }
     Ok(ExitCode::SUCCESS)
@@ -346,6 +356,7 @@ fn cmd_rename(
 ) -> Result<ExitCode> {
     let nb = Notebook::find(book, BIN)?;
     let path = links::rename(&nb, id, title, keywords, signature)?;
+    after_write(&nb)?;
     println!("{}", nb.display(&path));
     Ok(ExitCode::SUCCESS)
 }
@@ -380,12 +391,24 @@ fn cmd_search(
     Ok(external::exit(code))
 }
 
+fn cmd_mcp(book: Option<&Path>) -> Result<ExitCode> {
+    crate::mcp::serve(Notebook::find(book, BIN)?)?;
+    Ok(ExitCode::SUCCESS)
+}
+
 fn finish_note(nb: &Notebook, path: &Path, edit: bool) -> Result<ExitCode> {
     println!("{}", nb.display(path));
     if edit {
         external::edit(path)?;
     }
+    after_write(nb)?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Keep SUMMARY.md and the day pages current after a command changes the
+/// notebook.
+fn after_write(nb: &Notebook) -> Result<()> {
+    summary::write(nb)
 }
 
 fn links_command(nb: &Notebook, command: LinksCmd) -> Result<ExitCode> {
@@ -411,6 +434,7 @@ fn links_command(nb: &Notebook, command: LinksCmd) -> Result<ExitCode> {
         }
         LinksCmd::Fix => {
             let report = links::fix(nb)?;
+            after_write(nb)?;
             for (file, line, old, new) in &report.fixed {
                 println!("{}:{line}: fixed {old} -> {new}", nb.display(file));
             }

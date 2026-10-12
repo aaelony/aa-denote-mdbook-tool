@@ -42,7 +42,7 @@ work-notes/
   theme/font.css                renders the book in Courier New
   src/
     SUMMARY.md                  generated between the aa-denote-mdbook-tool markers
-    days/                       one generated page per day (rewritten by summary)
+    days/                       one generated page per day (rewritten after every change)
     README.md                   book introduction
     notes/                      manual notes
     notes/zoom-summaries/       Zoom AI summaries
@@ -91,8 +91,9 @@ So transcripts imported at noon, or the next day, still sort and render right af
 | `links check` / `links fix` | Report or repair broken links; `fix` also converts `denote:ID` links and turns bare `http(s)://` URLs into links (as `import` does) |
 | `links backlinks ID` | List notes linking to a note or attachment |
 | `rename ID [--title] [--keywords] [--signature]` | Rename, keep the identifier, fix inbound links |
-| `summary` / `build` / `serve [--open]` | Regenerate `SUMMARY.md`; build or serve the book |
+| `summary` / `build` / `serve [--open]` | Regenerate `SUMMARY.md` (also done after every command that changes notes); build or serve the book |
 | `search PATTERN [--keyword K] [--kind K] [-- RG_ARGS]` | ripgrep over the notes |
+| `mcp` | Run an MCP server over stdio for this notebook (see below) |
 
 Every command except `init` finds the notebook from `--book DIR`, then `$AA_DENOTE_MDBOOK_TOOL_DIR`, then the nearest parent directory with a `book.toml`.
 
@@ -120,7 +121,26 @@ aa-denote-mdbook-tool links check
 aa-denote-mdbook-tool build            # or: aa-denote-mdbook-tool serve --open
 ```
 
-The rendered book lists each day as a linked entry, newest first, pointing to a generated page in `src/days/`. Each meeting is nested under its day, with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
+Every command that changes the notebook (`new`, `import`, `attach`, `link --append`, `links fix`, `rename`) regenerates `SUMMARY.md` and the day pages, so the book is always current. The rendered book lists each day as a linked entry, newest first, pointing to a generated page in `src/days/`. Each meeting is nested under its day, with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
+
+## MCP server
+
+`aa-denote-mdbook-tool mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io) server on standard input and output, so AI assistants such as Claude Code can work with the notebook through typed tools. The server finds its notebook like every other command, so pass `--book` or set `$AA_DENOTE_MDBOOK_TOOL_DIR`. Register it with Claude Code:
+
+```sh
+claude mcp add aa-denote-mdbook-tool -- aa-denote-mdbook-tool --book ~/work-notes mcp
+```
+
+| Tool | What it does |
+|---|---|
+| `new_note`, `import_note`, `attach_file` | Same as `new`, `import` (from a `path` or from `content`), and `attach` |
+| `make_link`, `check_links`, `fix_links`, `backlinks` | Same as `link` and the `links` subcommands |
+| `rename_note`, `regenerate_summary` | Same as `rename` and `summary` |
+| `search_notes` | Same as `search`, without extra ripgrep arguments |
+| `list_notes` | Every note's identifier, title, kind, keywords, and path, newest first |
+| `read_note` | A note's full Markdown by identifier |
+
+Tools that change the notebook regenerate `SUMMARY.md`, as the commands do. File paths given to `import_note` and `attach_file` are read by the server, so use absolute paths. A failed call returns the same message the command would print, and the server keeps running.
 
 ## Library
 

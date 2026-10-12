@@ -15,6 +15,7 @@ const BATCH: usize = 500;
 const RG_HINT: &str = "ripgrep is required for search: install it with `cargo install ripgrep` \
                        or your package manager.";
 
+/// Run `rg` with inherited output and return its exit status.
 pub fn search(
     nb: &Notebook,
     pattern: &str,
@@ -22,18 +23,66 @@ pub fn search(
     kind: Option<Kind>,
     rg_args: &[String],
 ) -> Result<u8> {
-    let rg = |paths: &[String]| -> Result<u8> {
-        let mut cmd = Command::new("rg");
-        // -H: show file names even when a batch holds a single file.
-        cmd.current_dir(&nb.root)
-            .arg("-H")
-            .args(rg_args)
-            .arg("-e")
-            .arg(pattern)
-            .args(paths);
-        external::run(cmd, RG_HINT)
-    };
+    run_filtered(nb, keywords, kind, |paths| {
+        external::run(rg_command(nb, pattern, rg_args, paths), RG_HINT)
+    })
+}
 
+/// What `search_captured` returns: `rg`'s combined exit status and output.
+#[derive(Debug, Default)]
+pub struct CapturedSearch {
+    pub status: u8,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Like `search` without extra `rg` arguments, but collecting `rg`'s output
+/// instead of letting it write to this process's standard output.
+pub fn search_captured(
+    nb: &Notebook,
+    pattern: &str,
+    keywords: &[String],
+    kind: Option<Kind>,
+) -> Result<CapturedSearch> {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let status = run_filtered(nb, keywords, kind, |paths| {
+        let out = external::output(rg_command(nb, pattern, &[], paths), RG_HINT)?;
+        stdout.push_str(&String::from_utf8_lossy(&out.stdout));
+        stderr.push_str(&String::from_utf8_lossy(&out.stderr));
+        Ok(out
+            .status
+            .code()
+            .and_then(|c| u8::try_from(c).ok())
+            .unwrap_or(1))
+    })?;
+    Ok(CapturedSearch {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn rg_command(nb: &Notebook, pattern: &str, rg_args: &[String], paths: &[String]) -> Command {
+    let mut cmd = Command::new("rg");
+    // -H: show file names even when a batch holds a single file.
+    cmd.current_dir(&nb.root)
+        .arg("-H")
+        .args(rg_args)
+        .arg("-e")
+        .arg(pattern)
+        .args(paths);
+    cmd
+}
+
+/// Call `rg` on `src/`, or on the notes matching the keyword and kind
+/// filters in batches, and combine the statuses.
+fn run_filtered(
+    nb: &Notebook,
+    keywords: &[String],
+    kind: Option<Kind>,
+    mut rg: impl FnMut(&[String]) -> Result<u8>,
+) -> Result<u8> {
     if keywords.is_empty() && kind.is_none() {
         return rg(&["src".to_string()]);
     }
