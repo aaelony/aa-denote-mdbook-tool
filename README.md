@@ -94,8 +94,10 @@ So transcripts imported at noon, or the next day, still sort and render right af
 | `summary` / `build` / `serve [--open]` | Regenerate `SUMMARY.md` (also done after every command that changes notes); build or serve the book |
 | `search PATTERN [--keyword K] [--kind K] [-- RG_ARGS]` | ripgrep over the notes |
 | `mcp` | Run an MCP server over stdio for this notebook (see below) |
+| `zoom login` / `zoom logout` | Sign in to Zoom in the browser, or forget the stored tokens (see below) |
+| `zoom import --date WHEN [--parent ID] [--dry-run]` | Fetch the AI summaries and transcripts of the meeting at `WHEN` (`"YYYY-MM-DD HH:MM"`) or of a whole day (`YYYY-MM-DD`) from Zoom |
 
-Every command except `init` finds the notebook from `--book DIR`, then `$AA_DENOTE_MDBOOK_TOOL_DIR`, then the nearest parent directory with a `book.toml`.
+Every command except `init`, `zoom login`, and `zoom logout` finds the notebook from `--book DIR`, then `$AA_DENOTE_MDBOOK_TOOL_DIR`, then the nearest parent directory with a `book.toml`.
 
 ## Monday morning workflow
 
@@ -108,7 +110,11 @@ aa-denote-mdbook-tool new --title "Acme Weekly Sync" --keywords acme,meeting
 aa-denote-mdbook-tool new --title "Roadmap Review" --keywords roadmap,meeting
 aa-denote-mdbook-tool new --title "1:1 with Manager" --keywords oneonone
 
-# Noon: attach the Zoom output to the 8:00 meeting (identifiers come from `new`)
+# Noon: fetch the day's Zoom summaries and transcripts; each lands under the
+# closest meeting note (add --dry-run to preview)
+aa-denote-mdbook-tool zoom import --date 2026-10-10
+
+# Or attach downloaded Zoom files by hand (identifiers come from `new`)
 aa-denote-mdbook-tool import ~/Downloads/summary.md --kind summary --parent 20261010T080000
 aa-denote-mdbook-tool import ~/Downloads/GMT20261010-150012_Recording.transcript.vtt \
     --kind transcript --parent 20261010T080000
@@ -121,7 +127,33 @@ aa-denote-mdbook-tool links check
 aa-denote-mdbook-tool build            # or: aa-denote-mdbook-tool serve --open
 ```
 
-Every command that changes the notebook (`new`, `import`, `attach`, `link --append`, `links fix`, `rename`) regenerates `SUMMARY.md` and the day pages, so the book is always current. The rendered book lists each day as a linked entry, newest first, pointing to a generated page in `src/days/`. Each meeting is nested under its day, with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
+Every command that changes the notebook (`new`, `import`, `zoom import`, `attach`, `link --append`, `links fix`, `rename`) regenerates `SUMMARY.md` and the day pages, so the book is always current. The rendered book lists each day as a linked entry, newest first, pointing to a generated page in `src/days/`. Each meeting is nested under its day, with its AI summary and transcript nested beneath it. The notes stay plain Markdown, so Claude and other tools can read them directly.
+
+## Zoom import
+
+`zoom import` fetches AI Companion meeting summaries and cloud recording transcripts straight from Zoom's API. One-time setup:
+
+1. In the [Zoom App Marketplace](https://marketplace.zoom.us/), choose **Develop > Build App > General App**, user-managed.
+2. Under **Basic Information > App Credentials**, turn on **Use Public Client OAuth** and copy the client ID. No secret is needed. A confidential app's secret also works if you set `ZOOM_CLIENT_SECRET`.
+3. Add the OAuth redirect URL `http://127.0.0.1/callback`. Zoom ignores the port, so the tool can listen on any free one.
+4. Add these scopes: `meeting:read:list_summaries`, `meeting:read:summary`, `cloud_recording:read:list_user_recordings`, `cloud_recording:read:meeting_transcript`, `user:read:user`.
+5. Sign in:
+
+```sh
+export ZOOM_CLIENT_ID=your-client-id        # or client_id in the config file below
+aa-denote-mdbook-tool zoom login            # opens the browser; prints the URL too
+```
+
+Tokens are stored in `~/.config/aa-denote-mdbook-tool/zoom.toml`, which only you can read. They are refreshed automatically. `zoom logout` removes them.
+
+| `--date` | Imports |
+|---|---|
+| `"2026-10-10 08:00"` | The meeting that started within 10 minutes of 08:00 |
+| `2026-10-10` | Every meeting that started that day |
+
+Each meeting gets a summary note and a transcript note (the VTT kept verbatim), whichever Zoom has. They attach to `--parent`, or else to the manual note closest to the meeting start, from 15 minutes before it until it ends. Notes record the Zoom meeting ID, so running the same import again skips what is already there. `--dry-run` shows the plan without writing anything.
+
+Summaries need a Pro or higher plan with **Meeting Summary with AI Companion** turned on. End-to-end encrypted meetings have none. Transcripts need cloud recording with audio transcripts. When Zoom has not finished a transcript yet, the tool prints Zoom's reason (for example `NOT_READY`) and imports the summary alone.
 
 ## MCP server
 

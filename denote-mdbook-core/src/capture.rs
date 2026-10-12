@@ -18,6 +18,8 @@ pub struct NoteOptions {
     pub signature: Option<String>,
     pub parent: Option<String>,
     pub date: Option<String>,
+    /// Zoom meeting UUID recorded in front matter by `zoom import`.
+    pub zoom_meeting: Option<String>,
 }
 
 /// What `import` reads from.
@@ -106,6 +108,7 @@ pub fn create_note(
         kind: kind.as_str().to_string(),
         parent: parent.as_ref().map(|p| p.name.id.clone()),
         imported: imported.then(|| naming::to_rfc3339_local(&now.naive_local())),
+        zoom_meeting: opts.zoom_meeting.clone(),
     };
     let heading = if title.is_empty() { &id } else { &title };
     let mut content = format!("{}\n# {heading}\n", front.render());

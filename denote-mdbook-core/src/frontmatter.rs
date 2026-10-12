@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     Manual,
     Summary,
@@ -47,6 +47,8 @@ pub struct FrontMatter {
     pub kind: String,
     pub parent: Option<String>,
     pub imported: Option<String>,
+    /// Zoom meeting UUID, for notes made by `zoom import`.
+    pub zoom_meeting: Option<String>,
 }
 
 fn toml_string(s: &str) -> String {
@@ -69,6 +71,9 @@ impl FrontMatter {
         }
         if let Some(i) = &self.imported {
             let _ = writeln!(out, "imported = {i}");
+        }
+        if let Some(z) = &self.zoom_meeting {
+            let _ = writeln!(out, "zoom_meeting = {}", toml_string(z));
         }
         out.push_str("+++\n");
         out
@@ -99,6 +104,7 @@ impl FrontMatter {
             kind: text("kind").unwrap_or_default(),
             parent: text("parent"),
             imported: text("imported"),
+            zoom_meeting: text("zoom_meeting"),
         })
     }
 }
@@ -176,6 +182,7 @@ mod tests {
             kind: "manual".into(),
             parent: None,
             imported: None,
+            zoom_meeting: None,
         }
     }
 
@@ -208,6 +215,31 @@ mod tests {
         fm.imported = Some("2026-10-10T12:00:00-07:00".into());
         let content = format!("{}\n# Weekly Sync\n", fm.render());
         assert_eq!(FrontMatter::parse(&content), Some(fm));
+    }
+
+    #[test]
+    fn test_zoom_meeting_round_trips() {
+        let mut fm = test_helper_weekly_sync_front_matter();
+        fm.kind = "summary".into();
+        fm.imported = Some("2026-10-10T12:00:00-07:00".into());
+        fm.zoom_meeting = Some("aDYlohsHRtCd4ii1uC2+hA==".into());
+        let rendered = fm.render();
+        assert!(rendered.ends_with(
+            "imported = 2026-10-10T12:00:00-07:00
+zoom_meeting = \"aDYlohsHRtCd4ii1uC2+hA==\"\n+++\n"
+        ));
+        let content = format!("{rendered}\n# Weekly Sync\n");
+        assert_eq!(FrontMatter::parse(&content), Some(fm));
+    }
+
+    #[test]
+    fn test_notes_without_zoom_meeting_render_unchanged() {
+        let rendered = test_helper_weekly_sync_front_matter().render();
+        assert!(!rendered.contains("zoom_meeting"));
+        assert_eq!(
+            FrontMatter::parse(&rendered).and_then(|f| f.zoom_meeting),
+            None
+        );
     }
 
     #[test]

@@ -91,6 +91,7 @@ impl NewNoteParams {
             signature: self.signature.clone(),
             parent: self.parent.clone(),
             date: self.date.clone(),
+            ..Default::default()
         }
     }
 }
@@ -344,6 +345,7 @@ impl NotebookServer {
                 signature: p.signature.clone(),
                 parent: p.parent.clone(),
                 date: p.date.clone(),
+                ..Default::default()
             };
             let path =
                 capture::create_note(nb, p.kind.into(), &opts, &body, source.file_name(), true)?;

@@ -55,6 +55,7 @@ impl CommonNoteArgs {
             signature: self.signature.clone(),
             parent: self.parent.clone(),
             date: self.date.clone(),
+            ..Default::default()
         }
     }
 }
@@ -186,11 +187,45 @@ enum Cmd {
     },
     /// Run an MCP server over stdio for this notebook
     Mcp,
+    /// Sign in to Zoom and import AI summaries and transcripts
+    Zoom {
+        #[command(subcommand)]
+        command: ZoomCmd,
+    },
     /// mdBook preprocessor entry point
     #[command(hide = true)]
     Preprocess {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ZoomCmd {
+    /// Sign in to Zoom in the browser and store the tokens
+    Login,
+    /// Remove the stored Zoom tokens
+    Logout,
+    /// Import Zoom AI summaries and transcripts by meeting date and time
+    Import {
+        /// "YYYY-MM-DD HH:MM" for the meeting starting then, or "YYYY-MM-DD" for the whole day
+        #[arg(long, value_name = "WHEN")]
+        date: String,
+        /// Attach to this note instead of the closest manual note
+        #[arg(long, value_name = "ID")]
+        parent: Option<String>,
+        /// Note title (default: from the parent, else the meeting topic)
+        #[arg(long)]
+        title: Option<String>,
+        /// Comma-separated keywords
+        #[arg(long, value_delimiter = ',')]
+        keywords: Option<Vec<String>>,
+        /// Denote signature
+        #[arg(long)]
+        signature: Option<String>,
+        /// Show what would be imported without writing anything
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -268,6 +303,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             rg_args,
         } => cmd_search(book, &pattern, &keywords, kind, &rg_args),
         Cmd::Mcp => cmd_mcp(book),
+        Cmd::Zoom { command } => cmd_zoom(book, command),
         Cmd::Preprocess { args } => preprocess::run(&args).map(|()| ExitCode::SUCCESS),
     }
 }
@@ -389,6 +425,31 @@ fn cmd_search(
     let nb = Notebook::find(book, BIN)?;
     let code = search::search(&nb, pattern, keywords, kind.map(Kind::from), rg_args)?;
     Ok(external::exit(code))
+}
+
+fn cmd_zoom(book: Option<&Path>, command: ZoomCmd) -> Result<ExitCode> {
+    match command {
+        ZoomCmd::Login => crate::zoom_cli::login(),
+        ZoomCmd::Logout => crate::zoom_cli::logout(),
+        ZoomCmd::Import {
+            date,
+            parent,
+            title,
+            keywords,
+            signature,
+            dry_run,
+        } => crate::zoom_cli::import(
+            &Notebook::find(book, BIN)?,
+            &crate::zoom_cli::ImportArgs {
+                date,
+                parent,
+                title,
+                keywords,
+                signature,
+                dry_run,
+            },
+        ),
+    }
 }
 
 fn cmd_mcp(book: Option<&Path>) -> Result<ExitCode> {

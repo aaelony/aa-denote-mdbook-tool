@@ -10,3 +10,5 @@ pub mod notebook;
 pub mod preprocess;
 pub mod search;
 pub mod summary;
+pub mod zoom;
+pub mod zoom_api;
