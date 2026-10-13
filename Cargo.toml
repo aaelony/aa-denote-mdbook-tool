@@ -34,3 +34,11 @@ serde_json = "1"
 assert_cmd = "2.2.2"
 tempfile = "3.27.0"
 tiny_http = "0.12.0"
+
+
+[profile.release]
+opt-level = "z"      # Optimize aggressively for size (or "s" for a slight balance)
+lto = true           # Enable Link-Time Optimization across the entire crate
+codegen-units = 1    # Compile all code as a single unit to maximize optimizations
+panic = "abort"      # Remove unwinding infrastructure and stack trace logic
+strip = true         # Strip all symbols and debug info from the binary
