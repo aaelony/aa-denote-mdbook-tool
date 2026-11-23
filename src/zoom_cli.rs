@@ -96,6 +96,7 @@ pub fn import(nb: &Notebook, args: &ImportArgs) -> Result<ExitCode> {
     }
     if created > 0 {
         summary::write(nb)?;
+        crate::semantic_cli::after_write(nb);
     }
     Ok(ExitCode::SUCCESS)
 }

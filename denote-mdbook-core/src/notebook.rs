@@ -281,7 +281,10 @@ pub fn init(dir: &Path, title: Option<&str>, program: &str) -> Result<Notebook> 
             ),
         ),
         (nb.root.join(FONT_CSS), FONT_CSS_CONTENT.to_string()),
-        (nb.root.join(".ignore"), "book/\n".to_string()),
+        (
+            nb.root.join(".ignore"),
+            "book/\n.semantic-index.json\n".to_string(),
+        ),
         (
             nb.src().join("SUMMARY.md"),
             format!("# Summary\n\n[Introduction](README.md)\n\n{BEGIN_MARKER}\n{END_MARKER}\n"),

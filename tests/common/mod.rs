@@ -16,6 +16,7 @@ pub fn test_helper_isolated_cli(cwd: &Path) -> Command {
         .env("TZ", "Etc/GMT+7")
         .env_remove("AA_DENOTE_MDBOOK_TOOL_DIR")
         .env_remove("AA_DENOTE_MDBOOK_TOOL_NOW")
+        .env_remove("AA_DENOTE_MDBOOK_TOOL_QDRANT_URL")
         .env_remove("VISUAL")
         .env_remove("EDITOR");
     c

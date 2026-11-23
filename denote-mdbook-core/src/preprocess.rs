@@ -1,4 +1,5 @@
-//! mdBook preprocessor that hides `+++` front matter in rendered chapters.
+//! mdBook preprocessor that hides `+++` front matter in rendered chapters and,
+//! for the HTML renderer, turns ```` ```mermaid ```` code blocks into diagrams.
 //!
 //! mdBook calls `aa-denote-mdbook-tool preprocess supports <renderer>` and then
 //! `aa-denote-mdbook-tool preprocess` with `[context, book]` JSON on stdin, expecting
@@ -33,28 +34,32 @@ pub fn process(input: &str) -> Result<String> {
         bail!("preprocessor input must be a [context, book] array");
     }
     let mut book = parts.pop().unwrap_or(Value::Null);
+    // Other renderers (for example `markdown`) keep the mermaid source as is.
+    let html = parts[0].get("renderer").and_then(Value::as_str) == Some("html");
     // mdBook 0.4 calls the list `sections`; 0.5 calls it `items`.
     for key in ["sections", "items"] {
         if let Some(Value::Array(items)) = book.get_mut(key) {
-            strip_items(items);
+            strip_items(items, html);
         }
     }
     Ok(serde_json::to_string(&book)?)
 }
 
-fn strip_items(items: &mut [Value]) {
+fn strip_items(items: &mut [Value], html: bool) {
     for item in items {
         let Some(chapter) = item.get_mut("Chapter") else {
             continue;
         };
         if let Some(Value::String(content)) = chapter.get_mut("content") {
-            let stripped = frontmatter::strip(content)
-                .trim_start_matches(['\n', '\r'])
-                .to_string();
-            *content = stripped;
+            let stripped = frontmatter::strip(content).trim_start_matches(['\n', '\r']);
+            *content = if html {
+                crate::mermaid::render(stripped)
+            } else {
+                stripped.to_string()
+            };
         }
         if let Some(Value::Array(subs)) = chapter.get_mut("sub_items") {
-            strip_items(subs);
+            strip_items(subs, html);
         }
     }
 }
@@ -83,6 +88,21 @@ mod tests {
         assert_eq!(a["path"], "a.md");
         assert_eq!(out["sections"][1]["PartTitle"], "2026-10-10");
         assert!(out.get("__non_exhaustive").is_some());
+    }
+
+    #[test]
+    fn test_mermaid_only_for_html_renderer() {
+        let chapter = r##"{"sections":[{"Chapter":{"content":"```mermaid\ngraph TD\n```\n","sub_items":[]}}]}"##;
+        for (renderer, converted) in [("html", true), ("markdown", false)] {
+            let input = format!(r#"[{{"renderer":"{renderer}"}}, {chapter}]"#);
+            let out: Value = serde_json::from_str(&process(&input).unwrap()).unwrap();
+            let content = out["sections"][0]["Chapter"]["content"].as_str().unwrap();
+            assert_eq!(
+                content.contains("<pre class=\"mermaid\">"),
+                converted,
+                "{renderer}"
+            );
+        }
     }
 
     #[test]

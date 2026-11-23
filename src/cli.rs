@@ -177,17 +177,26 @@ enum Cmd {
         #[arg(long)]
         port: Option<u16>,
     },
-    /// Search notes with ripgrep
+    /// Search notes with ripgrep, or by meaning with --semantic
     Search {
+        /// Pattern for rg, or a question with --semantic
         pattern: String,
         /// Only notes with this keyword (repeatable; all must match)
         #[arg(long = "keyword", value_name = "K")]
         keywords: Vec<String>,
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
+        #[command(flatten)]
+        semantic: SemanticFlags,
         /// Extra arguments for rg, after `--`
-        #[arg(last = true)]
+        #[arg(last = true, conflicts_with = "semantic")]
         rg_args: Vec<String>,
+    },
+    /// Build or update the semantic search index in Qdrant
+    Index {
+        /// Drop the collection and embed every note again
+        #[arg(long)]
+        rebuild: bool,
     },
     /// Run an MCP server over stdio for this notebook
     Mcp,
@@ -202,6 +211,29 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+}
+
+/// `search` options for semantic (meaning-based) search.
+#[derive(Args)]
+struct SemanticFlags {
+    /// Rank notes by meaning and exact terms in Qdrant (run `index` first)
+    #[arg(long)]
+    semantic: bool,
+    /// Only notes dated on or after this day (YYYY-MM-DD)
+    #[arg(long, value_name = "DATE", requires = "semantic")]
+    since: Option<chrono::NaiveDate>,
+    /// Only notes dated on or before this day (YYYY-MM-DD)
+    #[arg(long, value_name = "DATE", requires = "semantic")]
+    until: Option<chrono::NaiveDate>,
+    /// Number of results
+    #[arg(long, default_value_t = 10, requires = "semantic")]
+    limit: usize,
+    /// Include transcripts, which semantic search leaves out by default
+    #[arg(long, requires = "semantic")]
+    all_kinds: bool,
+    /// Print results as JSON
+    #[arg(long, requires = "semantic")]
+    json: bool,
 }
 
 #[derive(Subcommand)]
@@ -304,8 +336,17 @@ fn run(cli: Cli) -> Result<ExitCode> {
             pattern,
             keywords,
             kind,
+            semantic,
+            ..
+        } if semantic.semantic => cmd_semantic_search(book, &pattern, keywords, kind, &semantic),
+        Cmd::Search {
+            pattern,
+            keywords,
+            kind,
             rg_args,
+            ..
         } => cmd_search(book, &pattern, &keywords, kind, &rg_args),
+        Cmd::Index { rebuild } => crate::semantic_cli::index(&Notebook::find(book, BIN)?, rebuild),
         Cmd::Mcp => cmd_mcp(book),
         Cmd::Zoom { command } => cmd_zoom(book, command),
         Cmd::Preprocess { args } => preprocess::run(&args).map(|()| ExitCode::SUCCESS),
@@ -431,6 +472,26 @@ fn cmd_search(
     Ok(external::exit(code))
 }
 
+fn cmd_semantic_search(
+    book: Option<&Path>,
+    question: &str,
+    keywords: Vec<String>,
+    kind: Option<KindArg>,
+    flags: &SemanticFlags,
+) -> Result<ExitCode> {
+    let nb = Notebook::find(book, BIN)?;
+    let args = crate::semantic_cli::SemanticArgs {
+        keywords,
+        kind: kind.map(Kind::from),
+        all_kinds: flags.all_kinds,
+        since: flags.since,
+        until: flags.until,
+        limit: flags.limit,
+        json: flags.json,
+    };
+    crate::semantic_cli::search(&nb, question, &args)
+}
+
 fn cmd_zoom(book: Option<&Path>, command: ZoomCmd) -> Result<ExitCode> {
     match command {
         ZoomCmd::Login => crate::zoom_cli::login(),
@@ -470,10 +531,12 @@ fn finish_note(nb: &Notebook, path: &Path, edit: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Keep SUMMARY.md and the day pages current after a command changes the
-/// notebook.
+/// Keep SUMMARY.md, the day pages, and the semantic index (when there is
+/// one) current after a command changes the notebook.
 fn after_write(nb: &Notebook) -> Result<()> {
-    summary::write(nb)
+    summary::write(nb)?;
+    crate::semantic_cli::after_write(nb);
+    Ok(())
 }
 
 fn links_command(nb: &Notebook, command: LinksCmd) -> Result<ExitCode> {

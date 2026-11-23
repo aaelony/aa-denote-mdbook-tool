@@ -4,6 +4,10 @@ description = "Library behind aa-denote-mdbook-tool: Denote file names in an mdB
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Local embeddings for `index` and `search --semantic` (pulls in ONNX Runtime).
+semantic = ["dep:fastembed"]
+
 [dependencies]
 anyhow.workspace = true
 base64 = "0.23.1"
@@ -19,3 +23,4 @@ toml = "1.1.8"
 ureq = { version = "3.4.2", features = ["json"] }
 urlencoding = "2.1.3"
 walkdir = "2.5.0"
+fastembed = { version = "7.7.1", optional = true }

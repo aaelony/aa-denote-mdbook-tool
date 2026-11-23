@@ -4,7 +4,7 @@ default-members = [".", "denote-mdbook-core"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.6"
 edition = "2024"
 
 [workspace.dependencies]
@@ -20,6 +20,10 @@ edition.workspace = true
 name = "aa-denote-mdbook-tool"
 path = "src/main.rs"
 
+[features]
+# Semantic search with local embeddings and Qdrant: `index`, `search --semantic`.
+semantic = ["aa-denote-mdbook-tool-core/semantic"]
+
 [dependencies]
 anyhow.workspace = true
 clap = { version = "4.6.7", features = ["derive"] }
@@ -29,6 +33,7 @@ tokio = { version = "1.52.3", features = ["rt", "macros", "io-std"] }
 serde = { version = "1", features = ["derive"] }
 schemars = "1"
 serde_json = "1"
+chrono = "0.4.45"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
@@ -37,8 +42,8 @@ tiny_http = "0.12.0"
 
 
 [profile.release]
-opt-level = "z"      # Optimize aggressively for size (or "s" for a slight balance)
-lto = true           # Enable Link-Time Optimization across the entire crate
-codegen-units = 1    # Compile all code as a single unit to maximize optimizations
-panic = "abort"      # Remove unwinding infrastructure and stack trace logic
-strip = true         # Strip all symbols and debug info from the binary
+##opt-level = "z"      # Optimize aggressively for size (or "s" for a slight balance)
+## lto = true           # Enable Link-Time Optimization across the entire crate
+## codegen-units = 1    # Compile all code as a single unit to maximize optimizations
+## panic = "abort"      # Remove unwinding infrastructure and stack trace logic
+## strip = true         # Strip all symbols and debug info from the binary

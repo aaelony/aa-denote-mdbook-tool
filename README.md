@@ -31,7 +31,7 @@ cargo install --path .
 cargo install mdbook ripgrep   # if not already installed
 ```
 
-`book.toml` registers `aa-denote-mdbook-tool preprocess` as an mdBook preprocessor (it hides front matter in the rendered pages), so plain `mdbook build` also works once `aa-denote-mdbook-tool` is on your `PATH`.
+`book.toml` registers `aa-denote-mdbook-tool preprocess` as an mdBook preprocessor (it hides front matter in the rendered pages and draws Mermaid diagrams), so plain `mdbook build` also works once `aa-denote-mdbook-tool` is on your `PATH`.
 
 ## Notebook layout
 
@@ -70,6 +70,18 @@ Imported notes also carry `parent` (the meeting's identifier) and `imported` (wh
 
 Attachments use the same naming with their own extension, for example `src/pdf/20261010T081500--vendor-contract__acme.pdf`. The supported types are `png`, `jpg`, `svg`, `pdf`, `sql`, and `json`. Images (`png`, `jpg`, `svg`) are referenced as `![Title](path)` so they render inline; the others as `[Title](path)` so they open or download from the book.
 
+Notes can hold [Mermaid](https://mermaid.js.org/) diagrams. Put the diagram in a `mermaid` code block, and the built book draws it:
+
+````markdown
+```mermaid
+graph TD
+  Meeting --> Summary
+  Meeting --> Transcript
+```
+````
+
+The preprocessor does this, so existing notebooks need no change to `book.toml`. Pages with a diagram load Mermaid from the jsDelivr CDN, so the browser needs internet access to draw them. Without it, the page shows the diagram source.
+
 ## Timestamps
 
 A note's identifier records when the content happened, not when it was captured. The first of these that applies wins:
@@ -95,6 +107,8 @@ So transcripts imported at noon, or the next day, still sort and render right af
 | `rename ID [--title] [--keywords] [--signature]` | Rename, keep the identifier, fix inbound links |
 | `summary` / `build` / `serve [--open]` | Regenerate `SUMMARY.md` (also done after every command that changes notes); build or serve the book |
 | `search PATTERN [--keyword K] [--kind K] [-- RG_ARGS]` | ripgrep over the notes |
+| `search --semantic QUESTION [--keyword K] [--kind K] [--since DATE] [--until DATE] [--limit N] [--all-kinds] [--json]` | Rank notes by meaning and exact terms in Qdrant (needs the `semantic` build; see below) |
+| `index [--rebuild]` | Build or update the semantic index in Qdrant |
 | `mcp` | Run an MCP server over stdio for this notebook (see below) |
 | `zoom login` / `zoom logout` | Sign in to Zoom in the browser, or forget the stored tokens (see below) |
 | `zoom import --date WHEN [--parent ID] [--dry-run]` | Fetch the AI summaries and transcripts of the meeting at `WHEN` (`"YYYY-MM-DD HH:MM"`) or of a whole day (`YYYY-MM-DD`) from Zoom |
@@ -186,8 +200,38 @@ claude mcp add aa-denote-mdbook-tool -- aa-denote-mdbook-tool --book ~/work-note
 | `search_notes` | Same as `search`, without extra ripgrep arguments |
 | `list_notes` | Every note's identifier, title, kind, keywords, and path, newest first |
 | `read_note` | A note's full Markdown by identifier |
+| `semantic_search` | Same as `search --semantic` (only in the `semantic` build) |
 
 Tools that change the notebook regenerate `SUMMARY.md`, as the commands do. File paths given to `import_note` and `attach_file` are read by the server, so use absolute paths. A failed call returns the same message the command would print, and the server keeps running.
+
+## Semantic search
+
+Optional. `search --semantic` finds notes by meaning as well as by exact words: "rollout risk" finds "we should progressively roll it out", and `4.45.1.0` still finds that exact version. Embeddings are made on your machine with `BAAI/bge-small-en-v1.5`; no note text leaves it. The vectors live in a local [Qdrant](https://qdrant.tech).
+
+1. Install a build with the feature (the first build downloads ONNX Runtime):
+
+   ```sh
+   cargo install --path . --features semantic
+   ```
+
+2. Run Qdrant on this machine only, for example as a launchd agent or in a terminal:
+
+   ```sh
+   QDRANT__SERVICE__HOST=127.0.0.1 QDRANT__STORAGE__STORAGE_PATH=~/.local/share/qdrant qdrant
+   ```
+
+   The tool uses `http://127.0.0.1:6333`; set `$AA_DENOTE_MDBOOK_TOOL_QDRANT_URL` to change it.
+
+3. Build the index, then search:
+
+   ```sh
+   aa-denote-mdbook-tool --book ~/work-notes index
+   aa-denote-mdbook-tool --book ~/work-notes search --semantic "what did we decide about the rollout" --since 2026-10-01
+   ```
+
+The first `index` downloads the model (about 130 MB) to the user cache directory. Later runs embed only notes whose content changed and remove notes that were deleted. Once a notebook has an index (the file `.semantic-index.json` in its root), every command and MCP tool that changes notes updates it; if Qdrant is down, the change still succeeds and a warning is printed. Notes edited in an editor or copied in by hand are picked up by the next `index`. `index --rebuild` starts over.
+
+Each notebook directory gets its own collection (`denote_<directory name>`), so a copy of a notebook never mixes with the original. Transcripts are indexed but left out of results unless you pass `--kind transcript` or `--all-kinds`, because they would crowd out summaries and notes. Add `.semantic-index.json` to the `.ignore` of notebooks made before this feature.
 
 ## Library
 

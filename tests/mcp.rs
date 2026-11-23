@@ -207,6 +207,7 @@ fn test_mcp_unknown_id_is_tool_error_and_server_continues() {
     assert_eq!(listed["notes"], json!([]));
 }
 
+#[cfg(not(feature = "semantic"))]
 #[test]
 fn test_mcp_tools_list_is_exact() {
     let (_t, root) = test_helper_init_notebook();
@@ -236,6 +237,21 @@ fn test_mcp_tools_list_is_exact() {
             "search_notes",
         ]
     );
+}
+
+#[cfg(feature = "semantic")]
+#[test]
+fn test_mcp_tools_list_has_semantic_search() {
+    let (_t, root) = test_helper_init_notebook();
+    let mut session = test_helper_mcp_session(&root, "12:00:00");
+    let tools = session.test_helper_request("tools/list", json!({}));
+    let names: Vec<&str> = tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"semantic_search"), "{names:?}");
 }
 
 #[test]
