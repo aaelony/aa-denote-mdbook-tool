@@ -29,7 +29,10 @@ fn test_init_creates_layout_and_builds() {
     ] {
         assert!(root.join(d).is_dir(), "missing {d}");
     }
-    assert_eq!(test_helper_read_file(root.join(".ignore")), "book/\n");
+    assert_eq!(
+        test_helper_read_file(root.join(".ignore")),
+        "book/\n.semantic-index.json\n"
+    );
     let toml = test_helper_read_file(root.join("book.toml"));
     assert!(toml.contains("title = \"work-notes\""));
     assert!(toml.contains("[preprocessor.aa-denote-mdbook-tool]"));

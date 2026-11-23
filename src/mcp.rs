@@ -299,8 +299,16 @@ impl NotebookServer {
     fn new(nb: Notebook) -> Self {
         Self {
             notebook: Arc::new(Mutex::new(nb)),
-            tool_router: Self::tool_router(),
+            tool_router: Self::all_tools(),
         }
+    }
+
+    /// The base tools, plus `semantic_search` when built with the feature.
+    fn all_tools() -> ToolRouter<Self> {
+        #[cfg(feature = "semantic")]
+        return Self::tool_router() + Self::semantic_router();
+        #[cfg(not(feature = "semantic"))]
+        return Self::tool_router();
     }
 
     /// Run `f` with the notebook locked, so tool calls never interleave, and
@@ -321,7 +329,7 @@ impl NotebookServer {
         self.with_notebook(|nb| {
             let kind = p.kind.map_or(Kind::Manual, Kind::from);
             let path = capture::create_note(nb, kind, &p.options(), "", None, false)?;
-            summary::write(nb)?;
+            after_write(nb)?;
             Ok(note_ref(nb, &path))
         })
     }
@@ -353,7 +361,7 @@ impl NotebookServer {
             };
             let path =
                 capture::create_note(nb, p.kind.into(), &opts, &body, source.file_name(), true)?;
-            summary::write(nb)?;
+            after_write(nb)?;
             Ok(note_ref(nb, &path))
         })
     }
@@ -375,7 +383,7 @@ impl NotebookServer {
                 p.date.as_deref(),
                 p.for_note.as_deref(),
             )?;
-            summary::write(nb)?;
+            after_write(nb)?;
             Ok(AttachResult {
                 path: nb.display(&path),
                 reference,
@@ -393,7 +401,7 @@ impl NotebookServer {
                 (true, Some(id)) => {
                     let path = nb.find_note(id)?.path;
                     links::append_line(&path, &link)?;
-                    summary::write(nb)?;
+                    after_write(nb)?;
                     Some(nb.display(&path))
                 }
                 (true, None) => bail!("append needs from: the note to append the link to"),
@@ -425,7 +433,7 @@ impl NotebookServer {
     async fn fix_links(&self) -> ToolResult<FixLinksResult> {
         self.with_notebook(|nb| {
             let report = links::fix(nb)?;
-            summary::write(nb)?;
+            after_write(nb)?;
             let at = |(file, line, dest): (PathBuf, usize, String)| LinkAt {
                 file: nb.display(&file),
                 line,
@@ -481,7 +489,7 @@ impl NotebookServer {
                 p.keywords.as_deref(),
                 p.signature.as_deref(),
             )?;
-            summary::write(nb)?;
+            after_write(nb)?;
             Ok(note_ref(nb, &path))
         })
     }
@@ -489,7 +497,7 @@ impl NotebookServer {
     #[tool(description = "Regenerate src/SUMMARY.md and the day pages")]
     async fn regenerate_summary(&self) -> ToolResult<SummaryResult> {
         self.with_notebook(|nb| {
-            summary::write(nb)?;
+            after_write(nb)?;
             Ok(SummaryResult {
                 path: nb.display(&nb.src().join("SUMMARY.md")),
             })
@@ -581,4 +589,98 @@ fn note_ref(nb: &Notebook, path: &Path) -> NoteRef {
         id,
         path: nb.display(path),
     }
+}
+
+#[cfg(feature = "semantic")]
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SemanticSearchParams {
+    /// A question or topic in plain words, for example "what did Mark say about rollout"
+    query: String,
+    /// Only notes with all of these keywords
+    keywords: Option<Vec<String>>,
+    /// Only notes of this kind
+    kind: Option<KindParam>,
+    /// Only notes dated on or after this day (YYYY-MM-DD)
+    since: Option<String>,
+    /// Only notes dated on or before this day (YYYY-MM-DD)
+    until: Option<String>,
+    /// Number of results (default 10)
+    limit: Option<usize>,
+    /// Include transcripts, which are left out by default
+    all_kinds: Option<bool>,
+}
+
+#[cfg(feature = "semantic")]
+#[derive(Debug, Serialize, JsonSchema)]
+struct SemanticSearchResult {
+    results: Vec<SemanticHit>,
+}
+
+#[cfg(feature = "semantic")]
+#[derive(Debug, Serialize, JsonSchema)]
+struct SemanticHit {
+    identifier: String,
+    title: String,
+    date: String,
+    kind: String,
+    heading: String,
+    path: String,
+    snippet: String,
+    score: f64,
+}
+
+#[cfg(feature = "semantic")]
+fn parse_day(value: Option<&str>, field: &str) -> Result<Option<chrono::NaiveDate>> {
+    value
+        .map(|v| {
+            chrono::NaiveDate::parse_from_str(v, "%Y-%m-%d")
+                .map_err(|_| anyhow::anyhow!("{field} must be YYYY-MM-DD, got {v:?}"))
+        })
+        .transpose()
+}
+
+#[cfg(feature = "semantic")]
+#[tool_router(router = semantic_router)]
+impl NotebookServer {
+    #[tool(
+        description = "Search notes by meaning and exact terms (hybrid search in Qdrant). Needs `index` to have been run. Transcripts are left out unless kind is transcript or all_kinds is true."
+    )]
+    async fn semantic_search(
+        &self,
+        Parameters(p): Parameters<SemanticSearchParams>,
+    ) -> ToolResult<SemanticSearchResult> {
+        self.with_notebook(|nb| {
+            let query = aa_denote_mdbook_tool_core::semantic::Query {
+                text: p.query.clone(),
+                keywords: p.keywords.clone().unwrap_or_default(),
+                kind: p.kind.map(Kind::from),
+                all_kinds: p.all_kinds.unwrap_or(false),
+                since: parse_day(p.since.as_deref(), "since")?,
+                until: parse_day(p.until.as_deref(), "until")?,
+                limit: p.limit.unwrap_or(10),
+            };
+            let results = crate::semantic_cli::hits(nb, &query)?
+                .into_iter()
+                .map(|h| SemanticHit {
+                    identifier: h.identifier,
+                    title: h.title,
+                    date: h.date,
+                    kind: h.kind,
+                    heading: h.heading,
+                    path: h.path,
+                    snippet: h.snippet,
+                    score: h.score,
+                })
+                .collect();
+            Ok(SemanticSearchResult { results })
+        })
+    }
+}
+
+/// Keep SUMMARY.md, the day pages, and the semantic index (when the notebook
+/// has one) current after a tool changes the notebook.
+fn after_write(nb: &Notebook) -> Result<()> {
+    summary::write(nb)?;
+    crate::semantic_cli::after_write(nb);
+    Ok(())
 }

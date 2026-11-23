@@ -2,6 +2,7 @@
 
 mod cli;
 mod mcp;
+mod semantic_cli;
 mod zoom_cli;
 
 fn main() -> std::process::ExitCode {

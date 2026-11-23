@@ -40,8 +40,20 @@ build_release:
 	cargo build --workspace --all-features --all-targets --release
 
 deploy: build_release
+	# rm first: overwriting a running or cached signed binary in place makes macOS kill it (exit 137)
+	rm -f ~/.local/bin/aa-denote-mdbook-tool
 	cp -p target/release/aa-denote-mdbook-tool ~/.local/bin
 	echo "copied to ~/.local/bin/aa-ddenote-mdbook-tool"
+
+# Release binary with semantic search (`index`, `search --semantic`). The first build downloads ONNX Runtime.
+build_release_semantic:
+	cargo build --release --features semantic
+
+# Install the semantic-search build into ~/.local/bin
+deploy_semantic: build_release_semantic
+	rm -f ~/.local/bin/aa-denote-mdbook-tool
+	cp -p target/release/aa-denote-mdbook-tool ~/.local/bin
+	echo "copied to ~/.local/bin/aa-denote-mdbook-tool (with semantic search)"
 
 # Quick compile without building a binary
 check:

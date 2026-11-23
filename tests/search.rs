@@ -239,3 +239,65 @@ fn test_search_capture_returns_matching_lines() {
     assert_eq!(none.status, 1);
     assert!(none.stdout.is_empty());
 }
+
+#[cfg(not(feature = "semantic"))]
+#[test]
+fn test_semantic_search_without_feature_explains() {
+    let (_t, root) = test_helper_init_notebook();
+    let out = test_helper_isolated_cli(&root)
+        .args(["search", "--semantic", "rollout"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--features semantic"), "{err}");
+}
+
+#[test]
+fn test_semantic_options_require_semantic_flag() {
+    let (_t, root) = test_helper_init_notebook();
+    let out = test_helper_isolated_cli(&root)
+        .args(["search", "budget", "--since", "2026-10-01"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("--semantic"), "{err}");
+}
+
+#[cfg(feature = "semantic")]
+#[test]
+fn test_semantic_search_without_qdrant_explains() {
+    let (_t, root) = test_helper_init_notebook();
+    let out = test_helper_isolated_cli(&root)
+        .env("AA_DENOTE_MDBOOK_TOOL_QDRANT_URL", "http://127.0.0.1:9")
+        .args(["search", "--semantic", "rollout"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("cannot reach Qdrant at http://127.0.0.1:9"),
+        "{err}"
+    );
+}
+
+#[cfg(feature = "semantic")]
+#[test]
+fn test_write_succeeds_when_qdrant_down() {
+    let (_t, root) = test_helper_init_notebook();
+    // A state file means "this notebook has an index", so writes try to update it.
+    fs::write(
+        root.join(".semantic-index.json"),
+        "{\"model\":\"\",\"collection\":\"\",\"notes\":{}}",
+    )
+    .unwrap();
+    let out = test_helper_cli_at_time(&root, "2026-10-10", "12:00:00")
+        .env("AA_DENOTE_MDBOOK_TOOL_QDRANT_URL", "http://127.0.0.1:9")
+        .args(["new", "--title", "Acme sync"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("warning: semantic index not updated"), "{err}");
+}

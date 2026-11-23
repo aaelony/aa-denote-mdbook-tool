@@ -314,6 +314,31 @@ fn test_build_hides_front_matter() {
 }
 
 #[test]
+fn test_build_renders_mermaid_blocks() {
+    let (_t, root) = test_helper_init_notebook();
+    let note = test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
+    let path = root.join(note.trim());
+    let mut c = test_helper_read_file(&path);
+    c.push_str("\n```mermaid\ngraph TD\n  A-->B\n```\n");
+    fs::write(&path, &c).unwrap();
+    test_helper_isolated_cli(&root)
+        .arg("build")
+        .assert()
+        .success();
+
+    let html =
+        test_helper_read_file(root.join("book/notes/20261010T080000--weekly-sync__meeting.html"));
+    assert!(
+        html.contains("<pre class=\"mermaid\">\ngraph TD\n  A--&gt;B\n</pre>"),
+        "{html}"
+    );
+    assert!(html.contains("mermaid.esm.min.mjs"));
+    // Pages without diagrams do not load Mermaid; the source keeps its code block.
+    assert!(!test_helper_read_file(root.join("book/days/2026-10-10.html")).contains("mermaid"));
+    assert!(test_helper_read_file(&path).contains("```mermaid\n"));
+}
+
+#[test]
 fn test_build_without_mdbook() {
     let (_t, root) = test_helper_init_notebook();
     test_helper_add_meeting_note(&root, "08:00:00", "Weekly Sync", "meeting");
